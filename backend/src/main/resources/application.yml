@@ -1,0 +1,44 @@
+server:
+  port: 8090
+  address: 127.0.0.1
+
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/pm;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate.format_sql: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  devtools:
+    restart:
+      enabled: true
+      poll-interval: 1s
+      quiet-period: 400ms
+      additional-paths: src/main/java,src/main/resources
+    livereload:
+      enabled: true
+
+pm:
+  logs:
+    dir: ./logs
+    ring-capacity: 2000
+  cors:
+    allowed-origins: http://localhost:5180,http://127.0.0.1:5180
+  shutdown:
+    # When PM stops, also kill all child projects. Set to false to leave them running
+    # and re-attach to them on the next PM boot via the recorded PID.
+    kill-children: true
+
+logging:
+  level:
+    root: INFO
+    com.pm: DEBUG

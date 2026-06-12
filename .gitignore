@@ -1,0 +1,22 @@
+# ── Maven build output ────────────────────────────────────────────
+target/
+
+# ── Frontend ──────────────────────────────────────────────────────
+node_modules/
+dist/
+
+# ── Runtime logs ──────────────────────────────────────────────────
+logs/
+*.log
+
+# ── H2 database lock file (created while server is running) ───────
+backend/data/*.lock.db
+
+# ── Dev state ────────────────────────────────────────────────────
+.pm-dev-state.json
+
+# ── IDE / editor ─────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+
