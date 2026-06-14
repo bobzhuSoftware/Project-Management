@@ -86,3 +86,28 @@ td.actions button { margin-right: 6px; }
 .error-banner { background: rgba(248, 113, 113, 0.15); color: var(--red); padding: 10px 14px; border-radius: 4px; margin-bottom: 12px; border: 1px solid var(--red); font-size: 13px; }
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
 .muted { color: var(--muted); font-size: 12px; }
+
+.git-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.git-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.git-badge.ok { background: rgba(74, 222, 128, 0.18); color: var(--green); }
+.git-badge.ahead { background: rgba(56, 189, 248, 0.18); color: var(--accent); }
+.git-badge.dirty { background: rgba(251, 191, 36, 0.18); color: var(--amber); }
+.git-badge.warn { background: rgba(168, 85, 247, 0.18); color: #c084fc; }
+.git-badge.err { background: rgba(248, 113, 113, 0.18); color: var(--red); }
+.git-badge.none { background: rgba(148, 163, 184, 0.15); color: var(--gray); }
+.git-sync-btn { padding: 2px 8px; font-size: 11px; background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
+.git-refresh-btn { padding: 2px 6px; font-size: 11px; }
+
+.git-modal-status { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; font-size: 12px; margin-bottom: 12px; line-height: 1.6; }
+.git-modal-status .muted { font-size: 12px; margin-right: 4px; }
+.git-sync-output { margin-top: 10px; border-radius: 4px; padding: 10px; font-size: 12px; max-height: 240px; overflow: auto; }
+.git-sync-output.ok { background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.4); }
+.git-sync-output.fail { background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.4); }
+.git-sync-output .fail-msg { color: var(--red); margin-bottom: 6px; font-weight: 600; }
+.git-sync-output pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: 'Consolas', monospace; color: var(--text); }
+
+/* Drag-and-drop reorder */
+.drag-handle { cursor: grab; user-select: none; color: var(--muted); font-size: 16px; width: 24px; text-align: center; }
+.drag-handle:active { cursor: grabbing; }
+tr.dragging { opacity: 0.4; background: var(--panel-2); }
+tr[draggable="true"]:hover .drag-handle { color: var(--text); }

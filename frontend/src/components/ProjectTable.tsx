@@ -1,13 +1,19 @@
-import type { ProjectDto } from '../types'
+import { useRef, useState } from 'react'
+import type { GitStatusDto, ProjectDto } from '../types'
 
 interface Props {
   projects: ProjectDto[]
   busyId: string | null
+  gitStatus: Record<string, GitStatusDto | undefined>
+  gitLoading: Record<string, boolean>
   onStart: (p: ProjectDto) => void
   onStop: (p: ProjectDto) => void
   onEdit: (p: ProjectDto) => void
   onDelete: (p: ProjectDto) => void
   onLogs: (p: ProjectDto) => void
+  onSync: (p: ProjectDto) => void
+  onGitRefresh: (p: ProjectDto) => void
+  onReorder: (orderedIds: string[]) => void
 }
 
 function pickOpenPort(p: ProjectDto): number | null {
@@ -56,29 +62,117 @@ function renderPorts(p: ProjectDto, running: boolean, external: boolean): JSX.El
   )
 }
 
-export function ProjectTable({ projects, busyId, onStart, onStop, onEdit, onDelete, onLogs }: Props) {
+function renderGitBadge(s: GitStatusDto): { cls: string; text: string; title: string } {
+  if (s.error) return { cls: 'git-badge err', text: 'error', title: s.error }
+  if (!s.repo) return { cls: 'git-badge none', text: 'non-git', title: 'Root directory is not a git repository' }
+  const dirty = s.staged + s.modified + s.untracked + s.conflicting
+  if (s.conflicting > 0) return { cls: 'git-badge err', text: `! ${s.conflicting} conflict`, title: 'Merge conflicts present' }
+  if (dirty > 0) return { cls: 'git-badge dirty', text: `● ${dirty} change${dirty > 1 ? 's' : ''}`, title: `staged ${s.staged}, modified ${s.modified}, untracked ${s.untracked}` }
+  if (!s.hasUpstream) return { cls: 'git-badge warn', text: 'no upstream', title: 'Branch has no upstream remote tracking branch' }
+  if (s.behind > 0 && s.ahead > 0) return { cls: 'git-badge warn', text: `↕ ${s.ahead}/${s.behind}`, title: `${s.ahead} ahead, ${s.behind} behind` }
+  if (s.behind > 0) return { cls: 'git-badge warn', text: `↓ ${s.behind} behind`, title: `Remote has ${s.behind} new commit(s)` }
+  if (s.ahead > 0) return { cls: 'git-badge ahead', text: `↑ ${s.ahead} to push`, title: `${s.ahead} local commit(s) not yet pushed` }
+  return { cls: 'git-badge ok', text: '✓ synced', title: 'In sync with remote' }
+}
+
+function renderGit(
+  p: ProjectDto,
+  status: GitStatusDto | undefined,
+  loading: boolean,
+  busy: boolean,
+  onSync: (p: ProjectDto) => void,
+  onGitRefresh: (p: ProjectDto) => void,
+): JSX.Element {
+  if (!status) {
+    return <span className="muted">{loading ? '…' : '—'}</span>
+  }
+  const { cls, text, title } = renderGitBadge(status)
+  const canSync = status.repo && !status.error && status.behind === 0 && status.conflicting === 0 && status.hasUpstream
+  const needsSync = status.repo && !status.error && !status.inSync
+  return (
+    <span className="git-cell">
+      <span className={cls} title={title}>{text}</span>
+      {status.repo && needsSync && (
+        <button
+          className="git-sync-btn"
+          disabled={busy || loading || !canSync}
+          title={canSync ? 'Commit local changes and push to remote' : 'Resolve conflicts / pull behind commits first'}
+          onClick={() => onSync(p)}
+        >
+          Sync
+        </button>
+      )}
+      <button
+        className="git-refresh-btn"
+        disabled={loading || busy}
+        title="Refresh git status"
+        onClick={() => onGitRefresh(p)}
+      >
+        ↻
+      </button>
+    </span>
+  )
+}
+
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onGitRefresh, onReorder }: Props) {
+  const dragItem = useRef<number | null>(null)
+  const dragOverItem = useRef<number | null>(null)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+
+  const handleDragStart = (idx: number) => {
+    dragItem.current = idx
+    setDragIdx(idx)
+  }
+
+  const handleDragEnter = (idx: number) => {
+    dragOverItem.current = idx
+  }
+
+  const handleDragEnd = () => {
+    if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
+      const reordered = [...projects]
+      const [removed] = reordered.splice(dragItem.current, 1)
+      reordered.splice(dragOverItem.current, 0, removed)
+      onReorder(reordered.map(p => p.id))
+    }
+    dragItem.current = null
+    dragOverItem.current = null
+    setDragIdx(null)
+  }
+
   return (
     <table>
       <thead>
         <tr>
+          <th></th>
           <th>Name</th>
           <th>Status</th>
           <th>Ports</th>
           <th>PID</th>
           <th>Uptime</th>
+          <th>Git</th>
           <th>Root</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        {projects.map(p => {
+        {projects.map((p, idx) => {
           const running = p.status === 'RUNNING' || p.status === 'ATTACHED'
           const external = p.status === 'EXTERNAL'
           const stoppable = running || external
           const busy = busyId === p.id
           const openPort = stoppable ? pickOpenPort(p) : null
           return (
-            <tr key={p.id}>
+            <tr
+              key={p.id}
+              draggable
+              onDragStart={() => handleDragStart(idx)}
+              onDragEnter={() => handleDragEnter(idx)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => e.preventDefault()}
+              className={dragIdx === idx ? 'dragging' : undefined}
+            >
+              <td className="drag-handle" title="拖动排序">⠿</td>
               <td>
                 <div>{p.name}</div>
                 {p.description && <div className="muted">{p.description}</div>}
@@ -89,6 +183,7 @@ export function ProjectTable({ projects, busyId, onStart, onStop, onEdit, onDele
               </td>
               <td>{p.pid ?? '-'}</td>
               <td>{uptime(p.startedAt)}</td>
+              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, onSync, onGitRefresh)}</td>
               <td className="muted" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.rootDirectory}</td>
               <td className="actions">
                 {!running && !external && (

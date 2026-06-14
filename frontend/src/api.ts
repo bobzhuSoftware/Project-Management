@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ProjectDto } from './types'
+import type { GitStatusDto, GitSyncResultDto, ProjectDto } from './types'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -19,12 +19,20 @@ export const projectsApi = {
   remove: (id: string) => api.delete(`/projects/${id}`),
   start: (id: string) => api.post<ProjectDto>(`/projects/${id}/start`).then(r => r.data),
   stop: (id: string) => api.post<ProjectDto>(`/projects/${id}/stop`).then(r => r.data),
+  reorder: (orderedIds: string[]) => api.put('/projects/reorder', orderedIds),
 }
 
 export interface LogFileEntry {
   filename: string
   size: number
   modifiedAt: string
+}
+
+export const gitApi = {
+  status: (id: string, refresh = false) =>
+    api.get<GitStatusDto>(`/projects/${id}/git/status`, { params: { refresh } }).then(r => r.data),
+  sync: (id: string, message: string) =>
+    api.post<GitSyncResultDto>(`/projects/${id}/git/sync`, { message }).then(r => r.data),
 }
 
 export const logsApi = {

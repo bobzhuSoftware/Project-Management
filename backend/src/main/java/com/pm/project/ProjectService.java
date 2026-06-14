@@ -20,7 +20,7 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public List<ProjectResponse> list() {
-        return repo.findAll().stream().map(this::toResponse).toList();
+        return repo.findAllByOrderBySortOrderAsc().stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -37,6 +37,7 @@ public class ProjectService {
         Instant now = Instant.now();
         Project p = Project.newId();
         applyRequest(p, req);
+        p.setSortOrder((int) repo.count());
         p.setCreatedAt(now);
         p.setUpdatedAt(now);
         return toResponse(repo.save(p));
@@ -77,6 +78,16 @@ public class ProjectService {
         Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
         supervisor.stop(p);
         return toResponse(p);
+    }
+
+    @Transactional
+    public void reorder(List<String> orderedIds) {
+        for (int i = 0; i < orderedIds.size(); i++) {
+            Project p = repo.findById(orderedIds.get(i))
+                    .orElseThrow(() -> new NotFoundException("Project not found"));
+            p.setSortOrder(i);
+            repo.save(p);
+        }
     }
 
     private void applyRequest(Project p, ProjectRequest req) {

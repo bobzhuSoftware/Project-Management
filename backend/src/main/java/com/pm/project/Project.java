@@ -51,6 +51,10 @@ public class Project {
     @Column(length = 2000)
     private String description;
 
+    @Column(name = "sort_order", nullable = false)
+    @Builder.Default
+    private int sortOrder = 0;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

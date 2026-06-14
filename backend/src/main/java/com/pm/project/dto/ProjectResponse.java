@@ -19,6 +19,8 @@ public class ProjectResponse {
     public Instant createdAt;
     public Instant updatedAt;
 
+    public int sortOrder;
+
     // Runtime
     public ProjectStatus status;
     public Long pid;
@@ -38,6 +40,7 @@ public class ProjectResponse {
         r.stopCommand = p.getStopCommand();
         r.ports = p.getPorts();
         r.description = p.getDescription();
+        r.sortOrder = p.getSortOrder();
         r.createdAt = p.getCreatedAt();
         r.updatedAt = p.getUpdatedAt();
         r.status = status;

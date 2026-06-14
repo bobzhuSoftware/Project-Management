@@ -102,7 +102,7 @@ export function LogsDrawer({ project, onClose }: Props) {
         {tab === 'live' && (
           <div className="log-pane" ref={paneRef}>
             {lines.length === 0
-              ? <pre className="muted">Waiting for logs… (no output yet, or no live process — try the History tab)</pre>
+              ? <pre className="muted">Waiting for logs… (connecting to stream — if the project isn't running, the most recent log file will be shown)</pre>
               : <pre>{lines.join('\n')}</pre>}
           </div>
         )}

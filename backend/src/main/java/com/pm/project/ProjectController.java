@@ -58,4 +58,10 @@ public class ProjectController {
     public ProjectResponse stop(@PathVariable String id) {
         return service.stop(id);
     }
+
+    @PutMapping("/reorder")
+    public ResponseEntity<Void> reorder(@RequestBody List<String> orderedIds) {
+        service.reorder(orderedIds);
+        return ResponseEntity.noContent().build();
+    }
 }
