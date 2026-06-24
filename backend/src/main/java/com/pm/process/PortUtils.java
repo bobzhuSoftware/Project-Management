@@ -11,9 +11,10 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 @Slf4j
 public final class PortUtils {
@@ -106,13 +107,48 @@ public final class PortUtils {
     /** Returns the set of listening TCP ports whose OwningProcess is in the given PID set. */
     public static List<Integer> listeningPortsOfPids(Collection<Long> pids) {
         if (pids == null || pids.isEmpty()) return Collections.emptyList();
-        String pidList = pids.stream().map(String::valueOf).collect(Collectors.joining(","));
+        Map<Long, List<Integer>> snapshot = snapshotListeningByPid();
+        return pids.stream()
+                .flatMap(pid -> snapshot.getOrDefault(pid, List.of()).stream())
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    /** Cached snapshot: pid -> listening ports. Avoids spawning PowerShell per-project per-poll. */
+    private static volatile Map<Long, List<Integer>> snapshotCache = Collections.emptyMap();
+    private static volatile long snapshotCacheTs = 0L;
+    private static final long SNAPSHOT_TTL_MS = 3_000;
+    private static final Object snapshotLock = new Object();
+
+    /**
+     * Returns a snapshot of all currently-listening TCP ports grouped by OwningProcess.
+     * One PowerShell invocation per {@value #SNAPSHOT_TTL_MS}ms; subsequent calls within
+     * the TTL return the cached map.
+     */
+    public static Map<Long, List<Integer>> snapshotListeningByPid() {
+        long now = System.currentTimeMillis();
+        if (now - snapshotCacheTs < SNAPSHOT_TTL_MS) {
+            return snapshotCache;
+        }
+        synchronized (snapshotLock) {
+            if (now - snapshotCacheTs < SNAPSHOT_TTL_MS) {
+                return snapshotCache;
+            }
+            Map<Long, List<Integer>> fresh = querySnapshot();
+            snapshotCache = fresh;
+            snapshotCacheTs = System.currentTimeMillis();
+            return fresh;
+        }
+    }
+
+    private static Map<Long, List<Integer>> querySnapshot() {
+        // Use single quotes + -f operator to avoid double-quote escaping issues
+        // when Java's ProcessBuilder passes the script through Windows arg quoting.
         String script =
-                "$pids=@(" + pidList + ");" +
                 "Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | " +
-                "Where-Object { $pids -contains $_.OwningProcess } | " +
-                "Select-Object -ExpandProperty LocalPort -Unique";
-        List<Integer> result = new ArrayList<>();
+                "ForEach-Object { '{0} {1}' -f $_.OwningProcess, $_.LocalPort }";
+        Map<Long, List<Integer>> result = new HashMap<>();
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script);
@@ -124,15 +160,21 @@ public final class PortUtils {
                 while ((line = r.readLine()) != null) {
                     line = line.trim();
                     if (line.isEmpty()) continue;
-                    try { result.add(Integer.parseInt(line)); } catch (NumberFormatException ignored) {}
+                    int sp = line.indexOf(' ');
+                    if (sp <= 0) continue;
+                    try {
+                        long pid = Long.parseLong(line.substring(0, sp));
+                        int port = Integer.parseInt(line.substring(sp + 1).trim());
+                        result.computeIfAbsent(pid, k -> new ArrayList<>()).add(port);
+                    } catch (NumberFormatException ignored) {}
                 }
             }
             p.waitFor(5, TimeUnit.SECONDS);
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            return Collections.emptyList();
+            log.warn("snapshotListeningByPid failed: {}", e.getMessage());
+            return Collections.emptyMap();
         }
-        Collections.sort(result);
         return result;
     }
 }

@@ -32,7 +32,7 @@ export function GitSyncModal({ project, status, onClose }: Props) {
   const handleClose = () => onClose(!!result?.success)
 
   return (
-    <div className="modal-backdrop" onClick={handleClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 640 }}>
         <h2>Git Sync — {project.name}</h2>
 

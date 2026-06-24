@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { GitStatusDto, GitSyncResultDto, ProjectDto } from './types'
+import type { GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto } from './types'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -10,6 +10,7 @@ export interface ProjectPayload {
   stopCommand?: string
   ports: number[]
   description?: string
+  category: ProjectCategory
 }
 
 export const projectsApi = {

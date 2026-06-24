@@ -192,8 +192,15 @@ public class ProcessSupervisor {
     /** Resolve current status without mutation. */
     public ProjectStatus statusOf(Project project) {
         ManagedProcess mp = live.get(project.getId());
-        if (mp != null && mp.isAlive()) {
-            return ProjectStatus.RUNNING;
+        if (mp != null) {
+            if (mp.isAlive()) {
+                return ProjectStatus.RUNNING;
+            }
+            // Process exited abnormally — evict from live registry and purge runtime record.
+            mp.close();
+            live.remove(project.getId());
+            runtimeRepo.findById(project.getId()).ifPresent(runtimeRepo::delete);
+            return ProjectStatus.STOPPED;
         }
         Optional<RuntimeStateEntity> stateOpt = runtimeRepo.findById(project.getId());
         if (stateOpt.isPresent()) {
@@ -203,9 +210,6 @@ public class ProcessSupervisor {
             }
             // PID dead — clean up stale record.
             runtimeRepo.delete(stateOpt.get());
-        }
-        if (PortUtils.anyListening(project.getPorts())) {
-            return ProjectStatus.EXTERNAL;
         }
         return ProjectStatus.STOPPED;
     }

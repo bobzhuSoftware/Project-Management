@@ -1,5 +1,7 @@
 export type ProjectStatus = 'RUNNING' | 'ATTACHED' | 'EXTERNAL' | 'STOPPED' | 'ERROR'
 
+export type ProjectCategory = 'APPLICATION' | 'DATABASE' | 'SCRIPT' | 'OTHER'
+
 export interface ProjectDto {
   id: string
   name: string
@@ -8,6 +10,7 @@ export interface ProjectDto {
   stopCommand?: string | null
   ports: number[]
   description?: string | null
+  category: ProjectCategory
   sortOrder: number
   createdAt: string
   updatedAt: string

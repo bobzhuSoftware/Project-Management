@@ -1,5 +1,6 @@
 package com.pm.project.dto;
 
+import com.pm.project.ProjectCategory;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.ArrayList;
@@ -18,4 +19,5 @@ public class ProjectRequest {
     public String stopCommand;
     public List<Integer> ports = new ArrayList<>();
     public String description;
+    public ProjectCategory category;
 }

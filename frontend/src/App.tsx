@@ -1,10 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { extractError, gitApi, projectsApi } from './api'
 import type { GitStatusDto, ProjectDto } from './types'
 import { ProjectTable } from './components/ProjectTable'
 import { ProjectFormModal } from './components/ProjectFormModal'
 import { LogsDrawer } from './components/LogsDrawer'
 import { GitSyncModal } from './components/GitSyncModal'
+import { Sidebar, categoryTitle, type CategoryFilter, type SidebarMode } from './components/Sidebar'
+
+const VALID_CATEGORIES: CategoryFilter[] = ['ALL', 'APPLICATION', 'DATABASE', 'SCRIPT', 'OTHER']
+const SIDEBAR_MODE_KEY = 'pm.sidebarMode'
+
+function readHashCategory(): CategoryFilter {
+  const h = window.location.hash.replace(/^#\/?/, '').toUpperCase()
+  return (VALID_CATEGORIES as string[]).includes(h) ? (h as CategoryFilter) : 'ALL'
+}
+
+function readSidebarMode(): SidebarMode {
+  const v = localStorage.getItem(SIDEBAR_MODE_KEY)
+  return v === 'rail' ? 'rail' : 'expanded'
+}
 
 export function App() {
   const [projects, setProjects] = useState<ProjectDto[]>([])
@@ -16,6 +30,9 @@ export function App() {
   const [syncFor, setSyncFor] = useState<ProjectDto | null>(null)
   const [gitStatus, setGitStatus] = useState<Record<string, GitStatusDto | undefined>>({})
   const [gitLoading, setGitLoading] = useState<Record<string, boolean>>({})
+  const [activeCategory, setActiveCategory] = useState<CategoryFilter>(readHashCategory())
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(readSidebarMode())
+  const [sidebarFloating, setSidebarFloating] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -107,36 +124,78 @@ export function App() {
     catch (e) { setError(extractError(e)) }
   }
 
+  // Keep URL hash in sync with active category so refresh preserves the view.
+  useEffect(() => {
+    const desired = activeCategory === 'ALL' ? '' : `#/${activeCategory.toLowerCase()}`
+    if (window.location.hash !== desired) {
+      window.history.replaceState(null, '', desired || window.location.pathname + window.location.search)
+    }
+  }, [activeCategory])
+
+  useEffect(() => {
+    const onHashChange = () => setActiveCategory(readHashCategory())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  const visibleProjects = useMemo(
+    () => activeCategory === 'ALL' ? projects : projects.filter(p => p.category === activeCategory),
+    [projects, activeCategory],
+  )
+
+  useEffect(() => { localStorage.setItem(SIDEBAR_MODE_KEY, sidebarMode) }, [sidebarMode])
+
   return (
     <div className="app">
-      <div className="header">
-        <h1>Project Management</h1>
-        <button className="primary" onClick={handleNew}>+ New Project</button>
-      </div>
-      <div className="main">
-        {error && <div className="error-banner">{error}</div>}
-        {projects.length === 0 ? (
-          <div className="empty">No projects yet. Click "New Project" to register one.</div>
-        ) : (
-          <ProjectTable
-            projects={projects}
-            busyId={busyId}
-            gitStatus={gitStatus}
-            gitLoading={gitLoading}
-            onStart={handleStart}
-            onStop={handleStop}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onLogs={setLogsFor}
-            onSync={setSyncFor}
-            onGitRefresh={(p) => fetchGitStatus(p.id, true)}
-            onReorder={handleReorder}
-            onOpenFolder={handleOpenFolder}
-          />
-        )}
+      <Sidebar
+        active={activeCategory}
+        onSelect={setActiveCategory}
+        projects={projects}
+        mode={sidebarMode}
+        floating={sidebarFloating}
+        onCollapse={() => setSidebarMode('rail')}
+        onExpandPinned={() => { setSidebarMode('expanded'); setSidebarFloating(false) }}
+        onOpenFloating={() => setSidebarFloating(true)}
+        onCloseFloating={() => setSidebarFloating(false)}
+      />
+      <div className="app-main">
+        <div className="header">
+          <h1>{categoryTitle(activeCategory)}</h1>
+          <button className="primary" onClick={handleNew}>+ New {activeCategory === 'ALL' ? 'Project' : categoryTitle(activeCategory).replace(/s$/, '')}</button>
+        </div>
+        <div className="main">
+          {error && <div className="error-banner">{error}</div>}
+          {visibleProjects.length === 0 ? (
+            <div className="empty">
+              {projects.length === 0
+                ? 'No projects yet. Click "New Project" to register one.'
+                : `No ${categoryTitle(activeCategory).toLowerCase()} yet.`}
+            </div>
+          ) : (
+            <ProjectTable
+              projects={visibleProjects}
+              busyId={busyId}
+              gitStatus={gitStatus}
+              gitLoading={gitLoading}
+              onStart={handleStart}
+              onStop={handleStop}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onLogs={setLogsFor}
+              onSync={setSyncFor}
+              onGitRefresh={(p) => fetchGitStatus(p.id, true)}
+              onReorder={handleReorder}
+              onOpenFolder={handleOpenFolder}
+            />
+          )}
+        </div>
       </div>
       {showForm && (
-        <ProjectFormModal project={editing} onClose={handleFormClose} />
+        <ProjectFormModal
+          project={editing}
+          defaultCategory={activeCategory === 'ALL' ? 'APPLICATION' : activeCategory}
+          onClose={handleFormClose}
+        />
       )}
       {logsFor && (
         <LogsDrawer project={logsFor} onClose={() => setLogsFor(null)} />

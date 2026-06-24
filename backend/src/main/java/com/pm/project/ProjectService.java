@@ -127,6 +127,7 @@ public class ProjectService {
         p.setStopCommand(req.stopCommand != null ? req.stopCommand.trim() : null);
         p.setPorts(req.ports != null ? new ArrayList<>(req.ports) : new ArrayList<>());
         p.setDescription(req.description);
+        p.setCategory(req.category != null ? req.category : ProjectCategory.APPLICATION);
     }
 
     private ProjectResponse toResponse(Project p) {
