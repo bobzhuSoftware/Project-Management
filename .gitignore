@@ -9,7 +9,12 @@ dist/
 logs/
 *.log
 
-# ── H2 database lock file (created while server is running) ───────
+# ── H2 database files (runtime data lives in OneDrive via junction) ─
+# backend/data is a junction to OneDrive; never commit the database.
+backend/data/
+backend/data/*.db
+backend/data/*.mv.db
+backend/data/*.trace.db
 backend/data/*.lock.db
 
 # ── Dev state ────────────────────────────────────────────────────
