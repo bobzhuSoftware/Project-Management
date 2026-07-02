@@ -6,7 +6,9 @@ node_modules/
 dist/
 
 # ── Runtime logs ──────────────────────────────────────────────────
-logs/
+# Use explicit paths to avoid accidentally ignoring com/pm/logs/ Java package
+/logs/
+/backend/logs/
 *.log
 
 # ── H2 database files (runtime data lives in OneDrive via junction) ─

@@ -78,15 +78,16 @@ $stateFile = Join-Path $scriptRoot '.pm-dev-state.json'
 
 Write-Host "Starting Project Management backend on port $BackendPort..."
 $backendJob = Start-Job -Name 'pm-backend' -ScriptBlock {
-  param([string]$Dir, [int]$Port, [string]$JavaHome)
+  param([string]$Dir, [int]$Port, [string]$JavaHome, [int]$UiPort)
   Set-Location $Dir
   $env:SERVER_PORT = "$Port"
+  $env:PM_CORS_ALLOWED_ORIGINS = "http://localhost:$UiPort,http://127.0.0.1:$UiPort"
   if ($JavaHome) {
     $env:JAVA_HOME = $JavaHome
     $env:Path = "$JavaHome\bin;$env:Path"
   }
   & mvn spring-boot:run 2>&1 | ForEach-Object { $_.ToString() }
-} -ArgumentList $backendDir, $BackendPort, $env:JAVA_HOME
+} -ArgumentList $backendDir, $BackendPort, $env:JAVA_HOME, $FrontendPort
 
 Write-Host "Waiting for backend to be ready on port $BackendPort..."
 $maxWait = 120
