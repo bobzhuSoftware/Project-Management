@@ -19,8 +19,8 @@ public class SettingsController {
     @GetMapping
     public AppSettingsDto get() {
         return repo.findById(1)
-                .map(s -> new AppSettingsDto(s.getJavaHome()))
-                .orElse(new AppSettingsDto(null));
+                .map(s -> new AppSettingsDto(s.getJavaHome(), s.getNodeHome()))
+                .orElse(new AppSettingsDto(null, null));
     }
 
     @PutMapping
@@ -28,6 +28,9 @@ public class SettingsController {
         AppSettings s = repo.findById(1).orElseGet(AppSettings::new);
         String jh = dto.javaHome();
         s.setJavaHome(jh == null || jh.isBlank() ? null : jh.trim());
-        return new AppSettingsDto(repo.save(s).getJavaHome());
+        String nh = dto.nodeHome();
+        s.setNodeHome(nh == null || nh.isBlank() ? null : nh.trim());
+        AppSettings saved = repo.save(s);
+        return new AppSettingsDto(saved.getJavaHome(), saved.getNodeHome());
     }
 }

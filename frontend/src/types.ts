@@ -46,6 +46,7 @@ export interface GitSyncResultDto {
 
 export interface AppSettings {
   javaHome: string | null
+  nodeHome: string | null
 }
 
 export interface ProjectFormValues {

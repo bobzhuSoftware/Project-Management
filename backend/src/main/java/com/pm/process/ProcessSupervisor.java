@@ -119,6 +119,7 @@ public class ProcessSupervisor {
         pb.redirectErrorStream(true);
         applyUtf8AndNoColorEnv(pb);
         applyConfiguredJavaHome(pb);
+        applyConfiguredNodeHome(pb);
 
         Process p;
         try {
@@ -159,6 +160,7 @@ public class ProcessSupervisor {
                 pb.redirectErrorStream(true);
                 applyUtf8AndNoColorEnv(pb);
                 applyConfiguredJavaHome(pb);
+                applyConfiguredNodeHome(pb);
                 Process p = pb.start();
                 p.waitFor(20, TimeUnit.SECONDS);
                 if (p.isAlive()) p.destroyForcibly();
@@ -279,6 +281,22 @@ public class ProcessSupervisor {
                     env.put("JAVA_HOME", javaHome);
                     String current = env.getOrDefault("PATH", env.getOrDefault("Path", ""));
                     env.put("PATH", javaHome + "\\bin;" + current);
+                });
+    }
+
+    /**
+     * Injects NODE_HOME and prepends it to PATH when the user has configured one.
+     * On Windows, node.exe lives directly in the install root (no bin/ subdirectory).
+     */
+    private void applyConfiguredNodeHome(ProcessBuilder pb) {
+        settingsRepo.findById(1)
+                .map(AppSettings::getNodeHome)
+                .filter(nh -> nh != null && !nh.isBlank())
+                .ifPresent(nodeHome -> {
+                    var env = pb.environment();
+                    env.put("NODE_HOME", nodeHome);
+                    String current = env.getOrDefault("PATH", env.getOrDefault("Path", ""));
+                    env.put("PATH", nodeHome + ";" + current);
                 });
     }
 

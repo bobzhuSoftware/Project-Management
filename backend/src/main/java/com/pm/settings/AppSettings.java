@@ -25,4 +25,11 @@ public class AppSettings {
      */
     @Column(name = "java_home", length = 500)
     private String javaHome;
+
+    /**
+     * Optional NODE_HOME to inject into every managed-project process.
+     * Null / blank = use whatever the system PATH already provides.
+     */
+    @Column(name = "node_home", length = 500)
+    private String nodeHome;
 }
