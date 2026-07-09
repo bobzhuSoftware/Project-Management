@@ -70,7 +70,33 @@ C:\Users\bob.zhu\jdk-17.0.19+10
 
 ---
 
-## 4. Start the Application / 启动应用
+## 4. Node.js Version Override (Optional) / Node.js 路径覆盖（可选）
+
+**When to use:** If the machine's default `node` version is incompatible with this project (e.g. too old or too new), you need this step.  
+**适用情况：** 如果当前机器默认的 `node` 版本与本项目不兼容（如版本过旧或过新），需要执行此步骤。
+
+Create a file named **`.node-home`** in the project root (it is already git-ignored).  
+在项目根目录创建名为 **`.node-home`** 的文件（该文件已被 git 忽略）。
+
+Write the path to your Node.js installation directory as a single line — no quotes, no trailing slash:  
+文件内容为 Node.js 安装根目录的路径，一行，无引号，无尾部斜线：
+
+```
+C:\path\to\nodejs
+```
+
+For example / 示例：
+
+```
+C:\Program Files\nodejs
+```
+
+`start-dev.ps1` reads this file on every launch, sets `NODE_HOME`, and prepends the directory to `PATH`. Both `npm install` and `npx vite` will use that Node.js version.  
+`start-dev.ps1` 每次启动时会读取该文件，设置 `NODE_HOME` 并将该目录前置到 `PATH`。`npm install` 和 `npx vite` 均会使用指定的 Node.js 版本。
+
+---
+
+## 5. Start the Application / 启动应用
 
 ```cmd
 start-dev.cmd
@@ -91,7 +117,7 @@ That's it. No manual database setup is required.
 
 ---
 
-## 5. Verify / 验证启动成功
+## 6. Verify / 验证启动成功
 
 Once the console shows the startup banner, open your browser:  
 控制台出现启动完成提示后，在浏览器中打开：
@@ -107,7 +133,7 @@ Once the console shows the startup banner, open your browser:
 
 ---
 
-## 6. Stop the Application / 停止应用
+## 7. Stop the Application / 停止应用
 
 ```cmd
 powershell -ExecutionPolicy Bypass -File stop-dev.ps1

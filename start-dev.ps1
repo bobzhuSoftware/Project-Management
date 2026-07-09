@@ -54,6 +54,22 @@ if (Test-Path $javaHomeFile) {
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Node override (optional) ──────────────────────────────────────────────────
+# Create .node-home in the project root with a single line containing the
+# Node.js installation directory. The file is gitignored, so each machine can
+# have its own setting.
+# Example:  C:\Program Files\nodejs
+$nodeHomeFile = Join-Path $scriptRoot '.node-home'
+if (Test-Path $nodeHomeFile) {
+  $nh = (Get-Content $nodeHomeFile -Raw).Trim()
+  if ($nh) {
+    $env:NODE_HOME = $nh
+    $env:Path = "$nh;$env:Path"
+    Write-Host "[node] NODE_HOME -> $nh"
+  }
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
 if ($StopExisting) {
   Stop-ListeningProcessByPort -Port $BackendPort
   Stop-ListeningProcessByPort -Port $FrontendPort
@@ -107,13 +123,17 @@ if (-not $backendReady) {
 
 Write-Host "Starting frontend on port $FrontendPort..."
 $frontendJob = Start-Job -Name 'pm-frontend' -ScriptBlock {
-  param([string]$Dir, [int]$Port, [int]$ApiPort)
+  param([string]$Dir, [int]$Port, [int]$ApiPort, [string]$NodeHome)
   Set-Location $Dir
   $env:BACKEND_PORT = "$ApiPort"
   $env:PM_FRONTEND_PORT = "$Port"
+  if ($NodeHome) {
+    $env:NODE_HOME = $NodeHome
+    $env:Path = "$NodeHome;$env:Path"
+  }
   if (-not (Test-Path 'node_modules')) { & npm install }
   & npx vite --port $Port --strictPort 2>&1 | ForEach-Object { $_.ToString() }
-} -ArgumentList $frontendDir, $FrontendPort, $BackendPort
+} -ArgumentList $frontendDir, $FrontendPort, $BackendPort, $env:NODE_HOME
 
 Write-Host ""
 Write-Host "==============================================="

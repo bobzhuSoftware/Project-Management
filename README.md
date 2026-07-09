@@ -70,6 +70,19 @@ Open **Settings** (⚙ in the sidebar) and enter the JAVA_HOME path there.
 PM injects `JAVA_HOME` and `PATH` into every child process it launches.
 Leave it blank to use the system default.
 
+## Node.js version configuration
+
+This project's frontend requires a compatible Node.js version (LTS recommended). If the machine's default `node` is incompatible, you can override it:
+
+Create a file named `.node-home` in the project root (it is gitignored, so each machine has its own copy).
+Put the Node.js installation directory as a single line — no quotes, no trailing slash:
+
+```
+C:\Program Files\nodejs
+```
+
+`start-dev.ps1` reads this file on every launch, sets `NODE_HOME`, and prepends the directory to `PATH` before starting the frontend. Both `npm install` and `npx vite` will use that Node.js version. If the file does not exist, the system default is used unchanged.
+
 ## Security
 
 The backend binds to `127.0.0.1` and executes arbitrary user-supplied shell commands. **Do not expose it to the LAN.**
