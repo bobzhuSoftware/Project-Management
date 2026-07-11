@@ -36,6 +36,7 @@ public class GitService {
     private static final Duration STATUS_TTL = Duration.ofSeconds(30);
     private static final int COMMIT_MESSAGE_MAX = 500;
     private static final long GIT_PROCESS_TIMEOUT_SECONDS = 120;
+    private static final int DIFF_MAX_BYTES = 400_000;
 
     private final ProjectRepository projectRepo;
 
@@ -44,19 +45,27 @@ public class GitService {
     private record CachedStatus(GitStatusDto status, Instant cachedAt) {}
 
     public GitStatusDto status(String projectId) {
-        return status(projectId, false);
+        return status(projectId, false, false);
     }
 
     public GitStatusDto status(String projectId, boolean forceRefresh) {
+        return status(projectId, forceRefresh, false);
+    }
+
+    public GitStatusDto status(String projectId, boolean forceRefresh, boolean checkRemote) {
         if (!forceRefresh) {
             CachedStatus cached = cache.get(projectId);
-            if (cached != null && Duration.between(cached.cachedAt, Instant.now()).compareTo(STATUS_TTL) < 0) {
+            // When the caller wants a remote-verified status, only reuse a cached
+            // entry that was itself remote-verified — otherwise recompute.
+            if (cached != null
+                    && Duration.between(cached.cachedAt, Instant.now()).compareTo(STATUS_TTL) < 0
+                    && (!checkRemote || cached.status.remoteChecked)) {
                 return cached.status;
             }
         }
         Project p = projectRepo.findById(projectId)
                 .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + projectId));
-        GitStatusDto dto = computeStatus(p);
+        GitStatusDto dto = computeStatus(p, checkRemote);
         cache.put(projectId, new CachedStatus(dto, Instant.now()));
         return dto;
     }
@@ -77,7 +86,7 @@ public class GitService {
         List<String> steps = new ArrayList<>();
         try {
             // 1. Check whether there is anything to commit
-            GitStatusDto preStatus = computeStatus(p);
+            GitStatusDto preStatus = computeStatus(p, false);
             boolean hasChanges = (preStatus.staged + preStatus.modified + preStatus.untracked + preStatus.conflicting) > 0;
 
             if (preStatus.conflicting > 0) {
@@ -100,7 +109,7 @@ public class GitService {
                 steps.add("[warn] fetch failed: " + fetchErr.getMessage());
             }
 
-            GitStatusDto midStatus = computeStatus(p);
+            GitStatusDto midStatus = computeStatus(p, false);
             cache.put(projectId, new CachedStatus(midStatus, Instant.now()));
 
             if (midStatus.behind > 0) {
@@ -115,20 +124,71 @@ public class GitService {
                 steps.add("Already up to date with remote — nothing to push.");
             }
 
-            GitStatusDto postStatus = computeStatus(p);
+            GitStatusDto postStatus = computeStatus(p, false);
             cache.put(projectId, new CachedStatus(postStatus, Instant.now()));
             return GitSyncResultDto.ok(steps, postStatus);
 
         } catch (GitCommandException e) {
-            GitStatusDto curr = computeStatus(p);
+            GitStatusDto curr = computeStatus(p, false);
             cache.put(projectId, new CachedStatus(curr, Instant.now()));
             return GitSyncResultDto.fail(e.getMessage(), steps, curr);
         }
     }
 
+    /**
+     * Returns the unified diff for a single changed file. {@code staged} selects
+     * the index diff (git diff --cached) versus the working-tree diff (git diff).
+     * Untracked files are rendered as an all-added diff via {@code --no-index}.
+     */
+    public GitDiffDto diff(String projectId, String path, boolean staged) {
+        Project p = projectRepo.findById(projectId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + projectId));
+
+        File root = new File(p.getRootDirectory());
+        if (!root.isDirectory() || !isGitRepo(root)) {
+            throw new IllegalArgumentException("Not a git repository: " + p.getRootDirectory());
+        }
+
+        String rel = path == null ? "" : path.replace('\\', '/').trim();
+        // Reject path traversal, absolute paths and drive-letter prefixes.
+        if (rel.isEmpty() || rel.startsWith("/") || rel.contains("..") || rel.matches("^[A-Za-z]:.*")) {
+            throw new IllegalArgumentException("Invalid path: " + path);
+        }
+
+        try {
+            String out;
+            if (isUntracked(root, rel)) {
+                // git diff does not show untracked files; compare against the null device.
+                out = runGitCapture(root, "diff", "--no-index", "--", nullDevice(), rel);
+            } else if (staged) {
+                out = runGitCapture(root, "diff", "--cached", "--", rel);
+            } else {
+                out = runGitCapture(root, "diff", "--", rel);
+            }
+            boolean truncated = out.length() >= DIFF_MAX_BYTES;
+            boolean binary = out.contains("Binary files") || out.contains("GIT binary patch");
+            return new GitDiffDto(rel, staged, binary, truncated, out);
+        } catch (GitCommandException e) {
+            throw new IllegalStateException("Failed to compute diff: " + e.getMessage());
+        }
+    }
+
     // --- internals ---
 
-    private GitStatusDto computeStatus(Project p) {
+    private boolean isUntracked(File root, String rel) {
+        try {
+            String out = runGitCapture(root, "status", "--porcelain", "--", rel);
+            return out.startsWith("??");
+        } catch (GitCommandException e) {
+            return false;
+        }
+    }
+
+    private String nullDevice() {
+        return System.getProperty("os.name").toLowerCase().contains("win") ? "NUL" : "/dev/null";
+    }
+
+    private GitStatusDto computeStatus(Project p, boolean checkRemote) {
         File root = new File(p.getRootDirectory());
         if (!root.isDirectory()) {
             return GitStatusDto.error("Root directory does not exist: " + p.getRootDirectory());
@@ -155,8 +215,32 @@ public class GitService {
             dto.untracked = st.getUntracked().size();
             dto.conflicting = st.getConflicting().size();
 
+            st.getAdded().forEach(f      -> dto.files.add(new GitFileChange(f, "ADDED",     true)));
+            st.getChanged().forEach(f    -> dto.files.add(new GitFileChange(f, "MODIFIED",  true)));
+            st.getRemoved().forEach(f    -> dto.files.add(new GitFileChange(f, "DELETED",   true)));
+            st.getModified().forEach(f   -> dto.files.add(new GitFileChange(f, "MODIFIED",  false)));
+            st.getMissing().forEach(f    -> dto.files.add(new GitFileChange(f, "DELETED",   false)));
+            st.getUntracked().forEach(f  -> dto.files.add(new GitFileChange(f, "UNTRACKED", false)));
+            st.getConflicting().forEach(f -> dto.files.add(new GitFileChange(f, "CONFLICT", false)));
+
             String fullBranch = repo.getFullBranch();
-            if (fullBranch != null && fullBranch.startsWith("refs/heads/")) {
+            boolean onBranch = fullBranch != null && fullBranch.startsWith("refs/heads/");
+
+            // Verify against the real remote so `behind` reflects reality instead of
+            // a stale local tracking ref. Runs `git fetch` which updates the cached
+            // remote-tracking ref that BranchTrackingStatus reads below.
+            if (checkRemote && onBranch && dto.remoteUrl != null) {
+                try {
+                    fetchQuietly(root);
+                    repo.getRefDatabase().refresh();
+                    dto.remoteChecked = true;
+                } catch (GitCommandException e) {
+                    dto.remoteError = "Could not reach remote (offline or authentication required)";
+                    log.debug("git fetch failed for project {}: {}", p.getName(), e.getMessage());
+                }
+            }
+
+            if (onBranch) {
                 BranchTrackingStatus tracking = BranchTrackingStatus.of(repo, dto.branch);
                 if (tracking != null) {
                     dto.hasUpstream = true;
@@ -174,6 +258,11 @@ public class GitService {
             log.warn("git status failed for project {}: {}", p.getName(), e.toString());
             return GitStatusDto.error("Failed to read git status: " + e.getMessage());
         }
+    }
+
+    /** Runs {@code git fetch --prune}, discarding its step output. */
+    private void fetchQuietly(File root) throws GitCommandException {
+        runGit(root, new ArrayList<>(), "fetch", "--prune");
     }
 
     private boolean isGitRepo(File root) {
@@ -268,6 +357,66 @@ public class GitService {
             if (!t.isEmpty()) return t;
         }
         return "";
+    }
+
+    /**
+     * Runs git and returns captured stdout/stderr. Unlike {@link #runGit}, exit
+     * code 1 is treated as success because {@code git diff} uses it to signal
+     * "differences found". Output is capped at {@link #DIFF_MAX_BYTES}.
+     */
+    private String runGitCapture(File workDir, String... args) throws GitCommandException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("git");
+        for (String a : args) cmd.add(a);
+        String pretty = String.join(" ", cmd);
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.directory(workDir);
+        pb.redirectErrorStream(true);
+        pb.environment().put("LC_ALL", "C");
+        pb.environment().put("LANG", "C");
+        pb.environment().put("GIT_TERMINAL_PROMPT", "0");
+
+        Process proc;
+        try {
+            proc = pb.start();
+        } catch (IOException e) {
+            throw new GitCommandException("Failed to launch git: " + e.getMessage(), "");
+        }
+
+        String output = drainLimited(proc.getInputStream(), DIFF_MAX_BYTES);
+        boolean finished;
+        try {
+            finished = proc.waitFor(GIT_PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            proc.destroyForcibly();
+            throw new GitCommandException("Interrupted while running: " + pretty, output);
+        }
+        if (!finished) {
+            proc.destroyForcibly();
+            throw new GitCommandException("Timeout running: " + pretty, output);
+        }
+        int code = proc.exitValue();
+        // git diff / diff --no-index: 0 = no differences, 1 = differences found.
+        if (code != 0 && code != 1) {
+            throw new GitCommandException(pretty + " failed (" + code + "): " + firstNonBlankLine(output), output);
+        }
+        return output;
+    }
+
+    private static String drainLimited(InputStream in, long maxBytes) {
+        try (in) {
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            byte[] chunk = new byte[4096];
+            int n;
+            while ((n = in.read(chunk)) > 0 && buf.size() < maxBytes) {
+                buf.write(chunk, 0, n);
+            }
+            return buf.toString();
+        } catch (IOException e) {
+            return "";
+        }
     }
 
     private static class GitCommandException extends Exception {

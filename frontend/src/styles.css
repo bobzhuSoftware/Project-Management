@@ -159,6 +159,8 @@ td.actions button { margin-right: 6px; }
 .git-badge.warn { background: rgba(168, 85, 247, 0.18); color: #c084fc; }
 .git-badge.err { background: rgba(248, 113, 113, 0.18); color: var(--red); }
 .git-badge.none { background: rgba(148, 163, 184, 0.15); color: var(--gray); }
+.git-badge-btn { border: none; cursor: pointer; line-height: inherit; font-family: inherit; }
+.git-badge-btn:hover:not(:disabled) { filter: brightness(1.25); text-decoration: underline; }
 .git-sync-btn { padding: 2px 8px; font-size: 11px; background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
 .git-refresh-btn { padding: 2px 6px; font-size: 11px; }
 
@@ -168,6 +170,42 @@ td.actions button { margin-right: 6px; }
 
 .git-modal-status { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; font-size: 12px; margin-bottom: 12px; line-height: 1.6; }
 .git-modal-status .muted { font-size: 12px; margin-right: 4px; }
+.git-file-list { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 4px; max-height: 220px; overflow: auto; background: var(--bg); }
+.git-file-list-header { padding: 6px 12px; font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel-2); border-bottom: 1px solid var(--border); }
+.git-file-list ul { list-style: none; margin: 0; padding: 4px 0; }
+.git-file { display: flex; align-items: center; gap: 8px; padding: 2px 12px; font-family: 'Consolas', monospace; font-size: 12px; }
+.git-file:hover { background: rgba(255,255,255,0.04); }
+.git-file-tag { width: 14px; text-align: center; font-weight: 700; flex-shrink: 0; }
+.tag-added, .tag-untracked { color: #4ade80; }
+.tag-modified { color: #d7ba7d; }
+.tag-deleted { color: #f87171; }
+.tag-renamed { color: #60a5fa; }
+.tag-conflict { color: #f14c4c; }
+.git-file-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.git-file.unstaged .git-file-path { color: var(--muted); }
+.git-changes-meta { padding: 0 4px 10px; font-size: 12px; }
+.git-changes-meta .dot { color: var(--muted); }
+.git-changes-body { max-height: 340px; overflow: auto; margin-bottom: 12px; }
+.git-changes-body .empty { padding: 20px; text-align: center; color: var(--muted); }
+.git-file-group { margin-bottom: 10px; }
+.git-file-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 4px; position: sticky; top: 0; background: var(--panel); }
+.git-file-group ul { list-style: none; margin: 0; padding: 0; }
+
+/* Changes modal: master-detail layout */
+.git-changes-modal .git-changes-body { display: flex; gap: 12px; max-height: 460px; overflow: hidden; }
+.git-changes-modal .git-file-list { flex: 0 0 260px; overflow: auto; }
+.git-file-btn { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: none; padding: 4px 6px; text-align: left; cursor: pointer; color: inherit; border-radius: 4px; font: inherit; }
+.git-file-btn:hover { background: var(--panel-2); }
+.git-file.active .git-file-btn { background: var(--panel-2); outline: 1px solid #4a9eff; }
+.git-diff-pane { flex: 1; min-width: 0; overflow: auto; background: var(--panel); border: 1px solid #333; border-radius: 4px; }
+.git-diff-head { position: sticky; top: 0; padding: 6px 10px; font-size: 12px; color: var(--muted); background: var(--panel); border-bottom: 1px solid #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.git-diff { margin: 0; font-family: 'Consolas', monospace; font-size: 12px; white-space: pre; line-height: 1.5; }
+.git-diff > div { padding: 0 10px; }
+.diff-add { background: rgba(74, 222, 128, 0.12); color: #4ade80; }
+.diff-del { background: rgba(248, 113, 113, 0.12); color: #f87171; }
+.diff-hunk { color: #60a5fa; background: rgba(96, 165, 250, 0.08); }
+.diff-meta { color: var(--muted); }
+.diff-ctx { color: var(--text); }
 .git-sync-output { margin-top: 10px; border-radius: 4px; padding: 10px; font-size: 12px; max-height: 240px; overflow: auto; }
 .git-sync-output.ok { background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.4); }
 .git-sync-output.fail { background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.4); }

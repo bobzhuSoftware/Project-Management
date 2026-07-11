@@ -19,8 +19,16 @@ public class GitController {
 
     @GetMapping("/status")
     public GitStatusDto status(@PathVariable String id,
-                               @RequestParam(name = "refresh", defaultValue = "false") boolean refresh) {
-        return gitService.status(id, refresh);
+                               @RequestParam(name = "refresh", defaultValue = "false") boolean refresh,
+                               @RequestParam(name = "checkRemote", defaultValue = "false") boolean checkRemote) {
+        return gitService.status(id, refresh, checkRemote);
+    }
+
+    @GetMapping("/diff")
+    public GitDiffDto diff(@PathVariable String id,
+                           @RequestParam String path,
+                           @RequestParam(name = "staged", defaultValue = "false") boolean staged) {
+        return gitService.diff(id, path, staged);
     }
 
     @PostMapping("/sync")

@@ -20,6 +20,14 @@ export interface ProjectDto {
   detectedPorts?: number[] | null
 }
 
+export type GitFileChangeType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'RENAMED' | 'UNTRACKED' | 'CONFLICT'
+
+export interface GitFileChange {
+  path: string
+  type: GitFileChangeType
+  staged: boolean
+}
+
 export interface GitStatusDto {
   repo: boolean
   branch?: string | null
@@ -35,6 +43,7 @@ export interface GitStatusDto {
   inSync: boolean
   checkedAt: string
   error?: string | null
+  files: GitFileChange[]
 }
 
 export interface GitSyncResultDto {
@@ -42,6 +51,14 @@ export interface GitSyncResultDto {
   message?: string | null
   steps: string[]
   status: GitStatusDto
+}
+
+export interface GitDiffDto {
+  path: string
+  staged: boolean
+  binary: boolean
+  truncated: boolean
+  diff: string
 }
 
 export interface AppSettings {

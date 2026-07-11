@@ -12,6 +12,7 @@ interface Props {
   onDelete: (p: ProjectDto) => void
   onLogs: (p: ProjectDto) => void
   onSync: (p: ProjectDto) => void
+  onShowChanges: (p: ProjectDto) => void
   onGitRefresh: (p: ProjectDto) => void
   onReorder: (orderedIds: string[]) => void
   onOpenFolder: (p: ProjectDto) => void
@@ -82,6 +83,7 @@ function renderGit(
   loading: boolean,
   busy: boolean,
   onSync: (p: ProjectDto) => void,
+  onShowChanges: (p: ProjectDto) => void,
   onGitRefresh: (p: ProjectDto) => void,
 ): JSX.Element {
   if (!status) {
@@ -90,9 +92,22 @@ function renderGit(
   const { cls, text, title } = renderGitBadge(status)
   const canSync = status.repo && !status.error && status.behind === 0 && status.conflicting === 0 && status.hasUpstream
   const needsSync = status.repo && !status.error && !status.inSync
+  const hasChanges = status.repo && !status.error &&
+    (status.staged + status.modified + status.untracked + status.conflicting) > 0
   return (
     <span className="git-cell">
-      <span className={cls} title={title}>{text}</span>
+      {hasChanges ? (
+        <button
+          type="button"
+          className={`${cls} git-badge-btn`}
+          title={`${title} — click to view changed files`}
+          onClick={(e) => { e.stopPropagation(); onShowChanges(p) }}
+        >
+          {text}
+        </button>
+      ) : (
+        <span className={cls} title={title}>{text}</span>
+      )}
       {status.repo && needsSync && (
         <button
           className="git-sync-btn"
@@ -115,7 +130,7 @@ function renderGit(
   )
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onGitRefresh, onReorder, onOpenFolder }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -184,7 +199,7 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
               </td>
               <td>{p.pid ?? '-'}</td>
               <td>{uptime(p.startedAt)}</td>
-              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, onSync, onGitRefresh)}</td>
+              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, onSync, onShowChanges, onGitRefresh)}</td>
               <td className="root-cell muted">
                 <button
                   className="open-folder-btn"

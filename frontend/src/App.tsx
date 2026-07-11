@@ -28,7 +28,7 @@ export function App() {
   const [editing, setEditing] = useState<ProjectDto | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [logsFor, setLogsFor] = useState<ProjectDto | null>(null)
-  const [syncFor, setSyncFor] = useState<ProjectDto | null>(null)
+  const [gitModal, setGitModal] = useState<{ project: ProjectDto; mode: 'sync' | 'changes' } | null>(null)
   const [gitStatus, setGitStatus] = useState<Record<string, GitStatusDto | undefined>>({})
   const [gitLoading, setGitLoading] = useState<Record<string, boolean>>({})
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>(readHashCategory())
@@ -185,7 +185,8 @@ export function App() {
               onEdit={handleEdit}
               onDelete={handleDelete}
               onLogs={setLogsFor}
-              onSync={setSyncFor}
+              onSync={(p) => setGitModal({ project: p, mode: 'sync' })}
+              onShowChanges={(p) => setGitModal({ project: p, mode: 'changes' })}
               onGitRefresh={(p) => fetchGitStatus(p.id, true)}
               onReorder={handleReorder}
               onOpenFolder={handleOpenFolder}
@@ -203,13 +204,16 @@ export function App() {
       {logsFor && (
         <LogsDrawer project={logsFor} onClose={() => setLogsFor(null)} />
       )}
-      {syncFor && (
+      {gitModal && (
         <GitSyncModal
-          project={syncFor}
-          status={gitStatus[syncFor.id] ?? null}
+          project={gitModal.project}
+          status={gitStatus[gitModal.project.id] ?? null}
+          mode={gitModal.mode}
+          onGoSync={() => setGitModal({ project: gitModal.project, mode: 'sync' })}
+          onRefresh={() => fetchGitStatus(gitModal.project.id, true)}
           onClose={(changed) => {
-            const id = syncFor.id
-            setSyncFor(null)
+            const id = gitModal.project.id
+            setGitModal(null)
             if (changed) fetchGitStatus(id, true)
           }}
         />
