@@ -208,6 +208,9 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
               ahead {status.ahead}, behind {status.behind}
               {!status.hasUpstream && <span className="muted"> (no upstream)</span>}
             </div>
+            {status.remoteError && (
+              <div className="muted" style={{ color: '#c084fc' }}>{status.remoteError}</div>
+            )}
           </div>
         )}
 

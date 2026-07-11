@@ -31,8 +31,8 @@ export interface LogFileEntry {
 }
 
 export const gitApi = {
-  status: (id: string, refresh = false) =>
-    api.get<GitStatusDto>(`/projects/${id}/git/status`, { params: { refresh } }).then(r => r.data),
+  status: (id: string, refresh = false, checkRemote = false) =>
+    api.get<GitStatusDto>(`/projects/${id}/git/status`, { params: { refresh, checkRemote } }).then(r => r.data),
   sync: (id: string, message: string) =>
     api.post<GitSyncResultDto>(`/projects/${id}/git/sync`, { message }).then(r => r.data),
   diff: (id: string, path: string, staged: boolean) =>

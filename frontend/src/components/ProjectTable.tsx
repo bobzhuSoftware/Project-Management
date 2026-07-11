@@ -71,10 +71,11 @@ function renderGitBadge(s: GitStatusDto): { cls: string; text: string; title: st
   if (s.conflicting > 0) return { cls: 'git-badge err', text: `! ${s.conflicting} conflict`, title: 'Merge conflicts present' }
   if (dirty > 0) return { cls: 'git-badge dirty', text: `● ${dirty} change${dirty > 1 ? 's' : ''}`, title: `staged ${s.staged}, modified ${s.modified}, untracked ${s.untracked}` }
   if (!s.hasUpstream) return { cls: 'git-badge warn', text: 'no upstream', title: 'Branch has no upstream remote tracking branch' }
-  if (s.behind > 0 && s.ahead > 0) return { cls: 'git-badge warn', text: `↕ ${s.ahead}/${s.behind}`, title: `${s.ahead} ahead, ${s.behind} behind` }
-  if (s.behind > 0) return { cls: 'git-badge warn', text: `↓ ${s.behind} behind`, title: `Remote has ${s.behind} new commit(s)` }
+  if (s.behind > 0 && s.ahead > 0) return { cls: 'git-badge warn', text: `↕ ${s.ahead}/${s.behind}`, title: `${s.ahead} ahead, ${s.behind} behind — pull then push` }
+  if (s.behind > 0) return { cls: 'git-badge warn', text: `↓ ${s.behind} behind`, title: `Remote has ${s.behind} new commit(s) — pull required` }
   if (s.ahead > 0) return { cls: 'git-badge ahead', text: `↑ ${s.ahead} to push`, title: `${s.ahead} local commit(s) not yet pushed` }
-  return { cls: 'git-badge ok', text: '✓ synced', title: 'In sync with remote' }
+  if (s.remoteError) return { cls: 'git-badge warn', text: '⚠ unverified', title: s.remoteError }
+  return { cls: 'git-badge ok', text: '✓ synced', title: 'In sync with remote (verified)' }
 }
 
 function renderGit(

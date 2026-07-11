@@ -46,10 +46,10 @@ export function App() {
     }
   }, [])
 
-  const fetchGitStatus = useCallback(async (id: string, refresh = false) => {
+  const fetchGitStatus = useCallback(async (id: string, refresh = false, checkRemote = true) => {
     setGitLoading(s => ({ ...s, [id]: true }))
     try {
-      const s = await gitApi.status(id, refresh)
+      const s = await gitApi.status(id, refresh, checkRemote)
       setGitStatus(prev => ({ ...prev, [id]: s }))
     } catch (e) {
       setGitStatus(prev => ({
@@ -57,8 +57,10 @@ export function App() {
         [id]: {
           repo: false, hasUpstream: false, ahead: 0, behind: 0,
           staged: 0, modified: 0, untracked: 0, conflicting: 0,
-          clean: false, inSync: false, checkedAt: new Date().toISOString(),
+          clean: false, inSync: false, remoteChecked: false,
+          checkedAt: new Date().toISOString(),
           error: extractError(e),
+          files: [],
         },
       }))
     } finally {

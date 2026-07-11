@@ -41,6 +41,8 @@ export interface GitStatusDto {
   conflicting: number
   clean: boolean
   inSync: boolean
+  remoteChecked: boolean
+  remoteError?: string | null
   checkedAt: string
   error?: string | null
   files: GitFileChange[]
