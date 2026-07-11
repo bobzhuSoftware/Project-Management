@@ -25,6 +25,7 @@ backend/data/*.lock.db
 # ── Machine-local config ─────────────────────────────────────────
 # See README — Java override for this PM app itself.
 .java-home
+.node-home
 
 # ── IDE / editor ─────────────────────────────────────────────────
 .idea/
