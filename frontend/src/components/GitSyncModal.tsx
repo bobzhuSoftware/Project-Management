@@ -88,6 +88,20 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
     }
   }
 
+  const handlePull = async () => {
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const r = await gitApi.pull(project.id)
+      setResult(r)
+      if (!r.success) setError(r.message ?? 'Pull failed')
+      if (onRefresh) onRefresh()
+    } catch (e) {
+      setError(extractError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleClose = () => onClose(!!result?.success)
 
   if (mode === 'changes') {
@@ -173,11 +187,21 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
           </div>
 
           <div className="form-actions">
-            {onRefresh && <button onClick={onRefresh}>Refresh</button>}
-            <button onClick={() => onClose(false)}>Close</button>
+            {error && <span className="error-banner" style={{ marginRight: 'auto' }}>{error}</span>}
+            {status && status.behind > 0 && (
+              <button
+                onClick={handlePull}
+                disabled={busy}
+                title="Fast-forward pull the behind commit(s) from remote"
+              >
+                {busy ? 'Pulling…' : `Pull ↓ ${status.behind}`}
+              </button>
+            )}
+            {onRefresh && <button onClick={onRefresh} disabled={busy}>Refresh</button>}
+            <button onClick={() => onClose(!!result?.success)} disabled={busy}>Close</button>
             <button
               className="primary"
-              disabled={!canSync || files.length === 0}
+              disabled={busy || !canSync || files.length === 0}
               title={canSync ? 'Commit and push these changes' : 'Resolve conflicts / pull behind commits first'}
               onClick={() => { if (onGoSync) onGoSync() }}
             >
@@ -246,6 +270,15 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
         <div className="form-actions">
           <button onClick={handleClose} disabled={busy}>Close</button>
+          {blockedByBehind && !blockedByConflicts && (
+            <button
+              onClick={handlePull}
+              disabled={busy}
+              title="Fast-forward pull the behind commit(s) from remote"
+            >
+              {busy ? 'Pulling…' : `Pull ↓ ${status!.behind} (fast-forward)`}
+            </button>
+          )}
           {!result?.success && (
             <button
               className="primary"

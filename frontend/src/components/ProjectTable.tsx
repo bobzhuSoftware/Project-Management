@@ -69,7 +69,15 @@ function renderGitBadge(s: GitStatusDto): { cls: string; text: string; title: st
   if (!s.repo) return { cls: 'git-badge none', text: 'non-git', title: 'Root directory is not a git repository' }
   const dirty = s.staged + s.modified + s.untracked + s.conflicting
   if (s.conflicting > 0) return { cls: 'git-badge err', text: `! ${s.conflicting} conflict`, title: 'Merge conflicts present' }
-  if (dirty > 0) return { cls: 'git-badge dirty', text: `● ${dirty} change${dirty > 1 ? 's' : ''}`, title: `staged ${s.staged}, modified ${s.modified}, untracked ${s.untracked}` }
+  if (dirty > 0) {
+    // Local changes take visual priority, but still surface a behind count so the
+    // user knows a pull is needed before syncing.
+    const base = `● ${dirty} change${dirty > 1 ? 's' : ''}`
+    const text = s.behind > 0 ? `${base} / ↓ ${s.behind}` : base
+    const title = `staged ${s.staged}, modified ${s.modified}, untracked ${s.untracked}`
+      + (s.behind > 0 ? ` — remote is ${s.behind} commit(s) ahead, pull required` : '')
+    return { cls: s.behind > 0 ? 'git-badge warn' : 'git-badge dirty', text, title }
+  }
   if (!s.hasUpstream) return { cls: 'git-badge warn', text: 'no upstream', title: 'Branch has no upstream remote tracking branch' }
   if (s.behind > 0 && s.ahead > 0) return { cls: 'git-badge warn', text: `↕ ${s.ahead}/${s.behind}`, title: `${s.ahead} ahead, ${s.behind} behind — pull then push` }
   if (s.behind > 0) return { cls: 'git-badge warn', text: `↓ ${s.behind} behind`, title: `Remote has ${s.behind} new commit(s) — pull required` }
@@ -112,8 +120,8 @@ function renderGit(
       {status.repo && needsSync && (
         <button
           className="git-sync-btn"
-          disabled={busy || loading || !canSync}
-          title={canSync ? 'Commit local changes and push to remote' : 'Resolve conflicts / pull behind commits first'}
+          disabled={busy || loading}
+          title={canSync ? 'Commit local changes and push to remote' : 'Open sync — pull behind commits / resolve conflicts first'}
           onClick={() => onSync(p)}
         >
           Sync

@@ -36,6 +36,8 @@ public class GitService {
     private static final Duration STATUS_TTL = Duration.ofSeconds(30);
     private static final int COMMIT_MESSAGE_MAX = 500;
     private static final long GIT_PROCESS_TIMEOUT_SECONDS = 120;
+    /** Network status checks (fetch during refresh) must fail fast, not hang. */
+    private static final long GIT_FETCH_TIMEOUT_SECONDS = 20;
     private static final int DIFF_MAX_BYTES = 400_000;
 
     private final ProjectRepository projectRepo;
@@ -104,7 +106,7 @@ public class GitService {
 
             // 2. Refresh remote info, then check whether we are behind
             try {
-                runGit(root, steps, "fetch", "--prune");
+                runGit(root, steps, GIT_FETCH_TIMEOUT_SECONDS, true, "fetch", "--prune");
             } catch (GitCommandException fetchErr) {
                 steps.add("[warn] fetch failed: " + fetchErr.getMessage());
             }
@@ -132,6 +134,54 @@ public class GitService {
             GitStatusDto curr = computeStatus(p, false);
             cache.put(projectId, new CachedStatus(curr, Instant.now()));
             return GitSyncResultDto.fail(e.getMessage(), steps, curr);
+        }
+    }
+
+    /**
+     * Fast-forwards the current branch to its upstream. Uses {@code merge
+     * --ff-only} so it never creates a merge commit or leaves the working tree
+     * in a conflicted state; if the branch has diverged the user is told to
+     * resolve it manually.
+     */
+    public GitSyncResultDto pull(String projectId) {
+        Project p = projectRepo.findById(projectId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + projectId));
+
+        File root = new File(p.getRootDirectory());
+        if (!root.isDirectory()) {
+            throw new IllegalArgumentException("Root directory does not exist: " + p.getRootDirectory());
+        }
+        if (!isGitRepo(root)) {
+            throw new IllegalArgumentException("Not a git repository: " + p.getRootDirectory());
+        }
+
+        List<String> steps = new ArrayList<>();
+        try {
+            GitStatusDto pre = computeStatus(p, false);
+            if (pre.conflicting > 0) {
+                return GitSyncResultDto.fail(
+                        "Repository has unresolved merge conflicts. Resolve them manually first.", steps, pre);
+            }
+            if (!pre.hasUpstream) {
+                return GitSyncResultDto.fail(
+                        "Branch has no upstream to pull from.", steps, pre);
+            }
+
+            runGit(root, steps, GIT_FETCH_TIMEOUT_SECONDS, true, "fetch", "--prune");
+            runGit(root, steps, "merge", "--ff-only", "@{u}");
+
+            GitStatusDto post = computeStatus(p, false);
+            cache.put(projectId, new CachedStatus(post, Instant.now()));
+            return GitSyncResultDto.ok(steps, post);
+        } catch (GitCommandException e) {
+            GitStatusDto curr = computeStatus(p, false);
+            cache.put(projectId, new CachedStatus(curr, Instant.now()));
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("Not possible to fast-forward")) {
+                msg = "Local and remote branches have diverged \u2014 fast-forward pull not possible. "
+                        + "Commit or stash your local commits and merge/rebase manually.";
+            }
+            return GitSyncResultDto.fail(msg, steps, curr);
         }
     }
 
@@ -262,7 +312,7 @@ public class GitService {
 
     /** Runs {@code git fetch --prune}, discarding its step output. */
     private void fetchQuietly(File root) throws GitCommandException {
-        runGit(root, new ArrayList<>(), "fetch", "--prune");
+        runGit(root, new ArrayList<>(), GIT_FETCH_TIMEOUT_SECONDS, true, "fetch", "--prune");
     }
 
     private boolean isGitRepo(File root) {
@@ -294,8 +344,26 @@ public class GitService {
     }
 
     private void runGit(File workDir, List<String> steps, String... args) throws GitCommandException {
+        runGit(workDir, steps, GIT_PROCESS_TIMEOUT_SECONDS, false, args);
+    }
+
+    /**
+     * Runs a git command. When {@code nonInteractive} is true the command is
+     * forced to fail fast instead of blocking on any authentication prompt
+     * (credential-helper GUI, SSH passphrase, host-key confirmation) — this is
+     * what status/refresh fetches need so the UI never hangs.
+     */
+    private void runGit(File workDir, List<String> steps, long timeoutSeconds, boolean nonInteractive, String... args)
+            throws GitCommandException {
         List<String> cmd = new ArrayList<>();
         cmd.add("git");
+        if (nonInteractive) {
+            // Keep the credential helper enabled so *cached* credentials are still
+            // used silently, but forbid it from popping an interactive GUI/prompt
+            // that would block the process indefinitely.
+            cmd.add("-c");
+            cmd.add("credential.interactive=false");
+        }
         for (String a : args) cmd.add(a);
         String pretty = String.join(" ", cmd);
         steps.add("$ " + pretty);
@@ -308,6 +376,9 @@ public class GitService {
         pb.environment().put("LANG", "C");
         // Disable interactive prompts; we cannot answer them.
         pb.environment().put("GIT_TERMINAL_PROMPT", "0");
+        // Keep SSH non-interactive so a passphrase / host-key prompt cannot hang us.
+        pb.environment().put("GIT_SSH_COMMAND",
+                "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10");
 
         Process proc;
         try {
@@ -316,19 +387,31 @@ public class GitService {
             throw new GitCommandException("Failed to launch git: " + e.getMessage(), "");
         }
 
-        String output = drain(proc.getInputStream());
+        // Drain stdout on a background thread. Reading inline would block this
+        // thread in read() whenever git stalls (e.g. waiting on auth), so the
+        // waitFor timeout below could never fire and the request would hang.
+        final StringBuilder sink = new StringBuilder();
+        Thread reader = new Thread(() -> {
+            String o = drain(proc.getInputStream());
+            synchronized (sink) { sink.append(o); }
+        }, "git-output-reader");
+        reader.setDaemon(true);
+        reader.start();
+
         boolean finished;
         try {
-            finished = proc.waitFor(GIT_PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            finished = proc.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             proc.destroyForcibly();
-            throw new GitCommandException("Interrupted while running: " + pretty, output);
+            throw new GitCommandException("Interrupted while running: " + pretty, joinReader(reader, sink));
         }
         if (!finished) {
             proc.destroyForcibly();
-            throw new GitCommandException("Timeout running: " + pretty, output);
+            throw new GitCommandException(
+                    "Timed out after " + timeoutSeconds + "s running: " + pretty, joinReader(reader, sink));
         }
+        String output = joinReader(reader, sink);
         if (!output.isBlank()) {
             steps.add(output.stripTrailing());
         }
@@ -336,6 +419,16 @@ public class GitService {
             String summary = firstNonBlankLine(output);
             throw new GitCommandException(pretty + " failed (" + proc.exitValue() + "): " + summary, output);
         }
+    }
+
+    /** Waits briefly for the output reader to finish, then returns what it captured. */
+    private static String joinReader(Thread reader, StringBuilder sink) {
+        try {
+            reader.join(2000);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        synchronized (sink) { return sink.toString(); }
     }
 
     private static String drain(InputStream in) {

@@ -37,6 +37,11 @@ public class GitController {
         return gitService.sync(id, message);
     }
 
+    @PostMapping("/pull")
+    public GitSyncResultDto pull(@PathVariable String id) {
+        return gitService.pull(id);
+    }
+
     public static class SyncRequest {
         @Size(max = 500)
         public String message;

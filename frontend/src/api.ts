@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { AppSettings, GitDiffDto, GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto } from './types'
 
-const api = axios.create({ baseURL: '/api' })
+const api = axios.create({ baseURL: '/api', timeout: 30000 })
 
 export interface ProjectPayload {
   name: string
@@ -35,6 +35,8 @@ export const gitApi = {
     api.get<GitStatusDto>(`/projects/${id}/git/status`, { params: { refresh, checkRemote } }).then(r => r.data),
   sync: (id: string, message: string) =>
     api.post<GitSyncResultDto>(`/projects/${id}/git/sync`, { message }).then(r => r.data),
+  pull: (id: string) =>
+    api.post<GitSyncResultDto>(`/projects/${id}/git/pull`).then(r => r.data),
   diff: (id: string, path: string, staged: boolean) =>
     api.get<GitDiffDto>(`/projects/${id}/git/diff`, { params: { path, staged } }).then(r => r.data),
 }
