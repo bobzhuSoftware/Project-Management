@@ -20,4 +20,5 @@ public class ProjectRequest {
     public List<Integer> ports = new ArrayList<>();
     public String description;
     public ProjectCategory category;
+    public Boolean pushEnabled;
 }

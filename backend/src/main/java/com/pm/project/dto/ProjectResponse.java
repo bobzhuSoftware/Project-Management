@@ -22,6 +22,7 @@ public class ProjectResponse {
     public Instant updatedAt;
 
     public int sortOrder;
+    public boolean pushEnabled;
 
     // Runtime
     public ProjectStatus status;
@@ -44,6 +45,7 @@ public class ProjectResponse {
         r.description = p.getDescription();
         r.category = p.getCategory();
         r.sortOrder = p.getSortOrder();
+        r.pushEnabled = p.isPushEnabled();
         r.createdAt = p.getCreatedAt();
         r.updatedAt = p.getUpdatedAt();
         r.status = status;

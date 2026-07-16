@@ -16,6 +16,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -39,6 +42,16 @@ public class GitService {
     /** Network status checks (fetch during refresh) must fail fast, not hang. */
     private static final long GIT_FETCH_TIMEOUT_SECONDS = 20;
     private static final int DIFF_MAX_BYTES = 400_000;
+
+    /** Marker line so we only ever touch pre-push hooks we created ourselves. */
+    private static final String HOOK_MARKER = "PM-MANAGED-PUSH-HOOK";
+    private static final String PRE_PUSH_SCRIPT =
+            "#!/bin/sh\n"
+            + "# " + HOOK_MARKER + "\n"
+            + "echo \"Push is disabled for this project by Project Management.\" >&2\n"
+            + "echo \"Re-enable push in the Project Management app to restore.\" >&2\n"
+            + "exit 1\n";
+    private static final String HOOK_BACKUP_SUFFIX = ".pm-backup";
 
     private final ProjectRepository projectRepo;
 
@@ -121,6 +134,15 @@ public class GitService {
             }
 
             if (midStatus.ahead > 0 || hasChanges) {
+                if (!p.isPushEnabled()) {
+                    steps.add("[blocked] Push is disabled for this project.");
+                    GitStatusDto blockedStatus = computeStatus(p, false);
+                    cache.put(projectId, new CachedStatus(blockedStatus, Instant.now()));
+                    return GitSyncResultDto.fail(
+                            "Push is disabled for this project. Local changes were committed but not pushed. "
+                                    + "Re-enable push to sync to remote.",
+                            steps, blockedStatus);
+                }
                 runGit(root, steps, "push");
             } else {
                 steps.add("Already up to date with remote — nothing to push.");
@@ -220,6 +242,73 @@ public class GitService {
             return new GitDiffDto(rel, staged, binary, truncated, out);
         } catch (GitCommandException e) {
             throw new IllegalStateException("Failed to compute diff: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Enforces the project's push policy at the Git level by writing (or
+     * removing) a {@code pre-push} hook. When push is disabled the hook makes
+     * every {@code git push} from any client (terminal, IDE, this app) fail
+     * fast; enabling push removes the hook and restores any hook the user had
+     * before. Only touches hooks we created (identified by {@link #HOOK_MARKER}).
+     * No-op when the project directory is not a git repository.
+     */
+    public void applyPushHook(Project p) {
+        File root = new File(p.getRootDirectory());
+        if (!root.isDirectory() || !isGitRepo(root)) {
+            return;
+        }
+        try (Repository repo = new FileRepositoryBuilder()
+                .findGitDir(root)
+                .readEnvironment()
+                .build()) {
+            File gitDir = repo.getDirectory();
+            if (gitDir == null) {
+                return;
+            }
+            File hooksDir = new File(gitDir, "hooks");
+            Path hook = new File(hooksDir, "pre-push").toPath();
+            Path backup = new File(hooksDir, "pre-push" + HOOK_BACKUP_SUFFIX).toPath();
+
+            if (p.isPushEnabled()) {
+                restorePushHook(hook, backup);
+            } else {
+                installPushBlockHook(hooksDir, hook, backup);
+            }
+        } catch (IOException | RuntimeException e) {
+            log.warn("Failed to apply pre-push hook for project {}: {}", p.getName(), e.toString());
+        }
+    }
+
+    /** Removes our managed hook and brings back any hook the user had before. */
+    private void restorePushHook(Path hook, Path backup) throws IOException {
+        if (Files.isRegularFile(hook) && isManagedHook(hook)) {
+            Files.deleteIfExists(hook);
+        }
+        if (!Files.exists(hook) && Files.isRegularFile(backup)) {
+            Files.move(backup, hook);
+        }
+    }
+
+    /** Preserves any pre-existing user hook, then installs the blocking hook. */
+    private void installPushBlockHook(File hooksDir, Path hook, Path backup) throws IOException {
+        if (!Files.isDirectory(hooksDir.toPath())) {
+            Files.createDirectories(hooksDir.toPath());
+        }
+        if (Files.isRegularFile(hook) && !isManagedHook(hook) && !Files.exists(backup)) {
+            Files.move(hook, backup);
+        }
+        Files.writeString(hook, PRE_PUSH_SCRIPT, StandardCharsets.UTF_8);
+        if (!hook.toFile().setExecutable(true, false)) {
+            log.debug("Could not mark pre-push hook executable: {}", hook);
+        }
+    }
+
+    private boolean isManagedHook(Path hook) {
+        try {
+            return Files.readString(hook, StandardCharsets.UTF_8).contains(HOOK_MARKER);
+        } catch (IOException e) {
+            return false;
         }
     }
 

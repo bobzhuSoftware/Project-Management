@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS projects (
     description     VARCHAR(2000),
     category        VARCHAR(32)   NOT NULL DEFAULT 'APPLICATION',
     sort_order      INT           NOT NULL DEFAULT 0,
+    push_enabled    BOOLEAN       NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMP     NOT NULL,
     updated_at      TIMESTAMP     NOT NULL,
     CONSTRAINT pk_projects         PRIMARY KEY (id),

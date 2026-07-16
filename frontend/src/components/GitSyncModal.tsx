@@ -58,6 +58,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
   const blockedByBehind = !!status && status.behind > 0
   const blockedByConflicts = !!status && status.conflicting > 0
+  const pushDisabled = !project.pushEnabled
 
   const openDiff = async (f: GitFileChange) => {
     setSelected(f)
@@ -109,7 +110,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
     const staged = files.filter(f => f.staged)
     const working = files.filter(f => !f.staged)
     const canSync = !!status && status.repo && !status.error &&
-      status.behind === 0 && status.conflicting === 0 && status.hasUpstream
+      status.behind === 0 && status.conflicting === 0 && status.hasUpstream && project.pushEnabled
     return (
       <div className="modal-backdrop">
         <div className="modal git-changes-modal" onClick={e => e.stopPropagation()} style={{ width: 900 }}>
@@ -120,6 +121,12 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
               <span className="muted">Branch:</span> {status.branch ?? '-'}
               <span className="dot"> · </span>
               {files.length} change{files.length === 1 ? '' : 's'}
+            </div>
+          )}
+
+          {pushDisabled && (
+            <div className="error-banner">
+              🔒 Push is disabled for this project. Enable it in the project settings to sync.
             </div>
           )}
 
@@ -243,6 +250,11 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
             Repository has unresolved merge conflicts. Resolve them manually before syncing.
           </div>
         )}
+        {pushDisabled && (
+          <div className="error-banner">
+            🔒 Push is disabled for this project. Enable it in the project settings to sync to remote.
+          </div>
+        )}
         {blockedByBehind && !blockedByConflicts && (
           <div className="error-banner">
             Remote has {status!.behind} new commit(s). Pull/merge manually before pushing.
@@ -283,7 +295,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
             <button
               className="primary"
               onClick={handleSync}
-              disabled={busy || blockedByBehind || blockedByConflicts}
+              disabled={busy || blockedByBehind || blockedByConflicts || pushDisabled}
             >
               {busy ? 'Syncing…' : 'Sync to GitHub'}
             </button>

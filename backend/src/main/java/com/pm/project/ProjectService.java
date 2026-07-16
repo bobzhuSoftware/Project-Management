@@ -1,6 +1,7 @@
 package com.pm.project;
 
 import com.pm.process.ProcessSupervisor;
+import com.pm.git.GitService;
 import com.pm.project.dto.ProjectRequest;
 import com.pm.project.dto.ProjectResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ public class ProjectService {
 
     private final ProjectRepository repo;
     private final ProcessSupervisor supervisor;
+    private final GitService gitService;
 
     @Transactional(readOnly = true)
     public List<ProjectResponse> list() {
@@ -43,7 +45,9 @@ public class ProjectService {
         p.setSortOrder((int) repo.count());
         p.setCreatedAt(now);
         p.setUpdatedAt(now);
-        return toResponse(repo.save(p));
+        Project saved = repo.save(p);
+        gitService.applyPushHook(saved);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -56,7 +60,9 @@ public class ProjectService {
         });
         applyRequest(p, req);
         p.setUpdatedAt(Instant.now());
-        return toResponse(repo.save(p));
+        Project saved = repo.save(p);
+        gitService.applyPushHook(saved);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -81,6 +87,16 @@ public class ProjectService {
         Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
         supervisor.stop(p);
         return toResponse(p);
+    }
+
+    @Transactional
+    public ProjectResponse setPushEnabled(String id, boolean enabled) {
+        Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
+        p.setPushEnabled(enabled);
+        p.setUpdatedAt(Instant.now());
+        Project saved = repo.save(p);
+        gitService.applyPushHook(saved);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -128,6 +144,7 @@ public class ProjectService {
         p.setPorts(req.ports != null ? new ArrayList<>(req.ports) : new ArrayList<>());
         p.setDescription(req.description);
         p.setCategory(req.category != null ? req.category : ProjectCategory.APPLICATION);
+        p.setPushEnabled(req.pushEnabled == null || req.pushEnabled);
     }
 
     private ProjectResponse toResponse(Project p) {

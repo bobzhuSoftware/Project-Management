@@ -11,6 +11,7 @@ export interface ProjectPayload {
   ports: number[]
   description?: string
   category: ProjectCategory
+  pushEnabled?: boolean
 }
 
 export const projectsApi = {
@@ -22,6 +23,8 @@ export const projectsApi = {
   stop: (id: string) => api.post<ProjectDto>(`/projects/${id}/stop`).then(r => r.data),
   reorder: (orderedIds: string[]) => api.put('/projects/reorder', orderedIds),
   openFolder: (id: string) => api.post(`/projects/${id}/open-folder`),
+  setPushEnabled: (id: string, enabled: boolean) =>
+    api.put<ProjectDto>(`/projects/${id}/push-enabled`, { enabled }).then(r => r.data),
 }
 
 export interface LogFileEntry {

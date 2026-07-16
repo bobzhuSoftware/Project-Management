@@ -25,6 +25,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
   const [category, setCategory] = useState<ProjectCategory>(
     project?.category ?? defaultCategory ?? 'APPLICATION'
   )
+  const [pushEnabled, setPushEnabled] = useState(project?.pushEnabled ?? true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -51,6 +52,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
         ports: parsedPorts,
         description: description.trim() || undefined,
         category,
+        pushEnabled,
       }
       if (project) await projectsApi.update(project.id, payload)
       else await projectsApi.create(payload)
@@ -100,6 +102,18 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
           <div className="form-row">
             <label>Description (optional)</label>
             <input value={description} onChange={e => setDescription(e.target.value)} />
+          </div>
+          <div className="form-row">
+            <label>Git Push</label>
+            <label className="checkbox-inline" style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 'normal' }}>
+              <input
+                type="checkbox"
+                checked={pushEnabled}
+                onChange={e => setPushEnabled(e.target.checked)}
+                style={{ width: 'auto' }}
+              />
+              Allow pushing to remote (disabling blocks push from this app and local git via a pre-push hook)
+            </label>
           </div>
         </div>
         <div className="form-actions">

@@ -59,6 +59,15 @@ public class ProjectController {
         return service.stop(id);
     }
 
+    @PutMapping("/{id}/push-enabled")
+    public ProjectResponse setPushEnabled(@PathVariable String id, @RequestBody PushToggleRequest body) {
+        return service.setPushEnabled(id, body.enabled);
+    }
+
+    public static class PushToggleRequest {
+        public boolean enabled;
+    }
+
     @PutMapping("/reorder")
     public ResponseEntity<Void> reorder(@RequestBody List<String> orderedIds) {
         service.reorder(orderedIds);

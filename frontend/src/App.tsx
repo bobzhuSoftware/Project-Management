@@ -128,6 +128,14 @@ export function App() {
     catch (e) { setError(extractError(e)) }
   }
 
+  const handleTogglePush = async (p: ProjectDto) => {
+    if (p.pushEnabled && !confirm(`Disable pushing for "${p.name}"? This installs a pre-push hook so local git push is also blocked.`)) return
+    setBusyId(p.id); setError(null)
+    try { await projectsApi.setPushEnabled(p.id, !p.pushEnabled); await refresh(); fetchGitStatus(p.id, true) }
+    catch (e) { setError(extractError(e)) }
+    finally { setBusyId(null) }
+  }
+
   // Keep URL hash in sync with active category so refresh preserves the view.
   useEffect(() => {
     const desired = activeCategory === 'ALL' ? '' : `#/${activeCategory.toLowerCase()}`
@@ -192,6 +200,7 @@ export function App() {
               onGitRefresh={(p) => fetchGitStatus(p.id, true)}
               onReorder={handleReorder}
               onOpenFolder={handleOpenFolder}
+              onTogglePush={handleTogglePush}
             />
           )}
         </div>

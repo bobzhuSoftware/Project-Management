@@ -62,6 +62,10 @@ public class Project {
     @Builder.Default
     private int sortOrder = 0;
 
+    @Column(name = "push_enabled", nullable = false)
+    @Builder.Default
+    private boolean pushEnabled = true;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

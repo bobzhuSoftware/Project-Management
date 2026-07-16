@@ -12,6 +12,7 @@ export interface ProjectDto {
   description?: string | null
   category: ProjectCategory
   sortOrder: number
+  pushEnabled: boolean
   createdAt: string
   updatedAt: string
   status: ProjectStatus

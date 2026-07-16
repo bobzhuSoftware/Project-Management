@@ -163,6 +163,9 @@ td.actions button { margin-right: 6px; }
 .git-badge-btn:hover:not(:disabled) { filter: brightness(1.25); text-decoration: underline; }
 .git-sync-btn { padding: 2px 8px; font-size: 11px; background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
 .git-refresh-btn { padding: 2px 6px; font-size: 11px; }
+.git-push-lock { padding: 2px 4px; font-size: 12px; line-height: 1; background: none; border: none; cursor: pointer; opacity: 0.75; }
+.git-push-lock:hover:not(:disabled) { opacity: 1; }
+.git-push-lock.locked { opacity: 1; }
 
 .root-cell { max-width: 220px; }
 .root-cell .root-path { display: inline-block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
