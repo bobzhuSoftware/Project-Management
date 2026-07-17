@@ -17,7 +17,6 @@ interface Props {
   onGitRefresh: (p: ProjectDto) => void
   onReorder: (orderedIds: string[]) => void
   onOpenFolder: (p: ProjectDto) => void
-  onTogglePush: (p: ProjectDto) => void
 }
 
 function pickOpenPort(p: ProjectDto): number | null {
@@ -93,7 +92,6 @@ interface GitHandlers {
   onShowPull: (p: ProjectDto) => void
   onShowChanges: (p: ProjectDto) => void
   onGitRefresh: (p: ProjectDto) => void
-  onTogglePush: (p: ProjectDto) => void
 }
 
 function renderGit(
@@ -103,7 +101,7 @@ function renderGit(
   busy: boolean,
   handlers: GitHandlers,
 ): JSX.Element {
-  const { onSync, onShowPull, onShowChanges, onGitRefresh, onTogglePush } = handlers
+  const { onSync, onShowPull, onShowChanges, onGitRefresh } = handlers
   if (!status) {
     return <span className="muted">{loading ? '…' : '—'}</span>
   }
@@ -117,17 +115,13 @@ function renderGit(
   const behindOnly = !hasChanges && status.repo && !status.error && status.behind > 0
   return (
     <span className="git-cell">
-      {status.repo && (
-        <button
-          className={`git-push-lock${p.pushEnabled ? '' : ' locked'}`}
-          disabled={busy}
-          title={p.pushEnabled
-            ? 'Push enabled — click to disable push (blocks this app and local git)'
-            : 'Push disabled — click to re-enable push'}
-          onClick={() => onTogglePush(p)}
+      {status.repo && !p.pushEnabled && (
+        <span
+          className="git-push-disabled"
+          title="Push disabled — edit the project to re-enable"
         >
-          {p.pushEnabled ? '🔓' : '🔒'}
-        </button>
+          🔒
+        </span>
       )}
       {hasChanges && (
         <button
@@ -174,7 +168,7 @@ function renderGit(
   )
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder, onTogglePush }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -243,7 +237,7 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
               </td>
               <td>{p.pid ?? '-'}</td>
               <td>{uptime(p.startedAt)}</td>
-              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, { onSync, onShowPull, onShowChanges, onGitRefresh, onTogglePush })}</td>
+              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, { onSync, onShowPull, onShowChanges, onGitRefresh })}</td>
               <td className="root-cell muted">
                 <button
                   className="open-folder-btn"

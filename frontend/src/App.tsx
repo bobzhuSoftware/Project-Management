@@ -6,6 +6,7 @@ import { ProjectFormModal } from './components/ProjectFormModal'
 import { LogsDrawer } from './components/LogsDrawer'
 import { GitSyncModal } from './components/GitSyncModal'
 import { SettingsModal } from './components/SettingsModal'
+import { PushControlModal } from './components/PushControlModal'
 import { Sidebar, categoryTitle, type CategoryFilter, type SidebarMode } from './components/Sidebar'
 
 const VALID_CATEGORIES: CategoryFilter[] = ['ALL', 'APPLICATION', 'DATABASE', 'SCRIPT', 'OTHER']
@@ -35,6 +36,7 @@ export function App() {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(readSidebarMode())
   const [sidebarFloating, setSidebarFloating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showPushControl, setShowPushControl] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -128,14 +130,6 @@ export function App() {
     catch (e) { setError(extractError(e)) }
   }
 
-  const handleTogglePush = async (p: ProjectDto) => {
-    if (p.pushEnabled && !confirm(`Disable pushing for "${p.name}"? This installs a pre-push hook so local git push is also blocked.`)) return
-    setBusyId(p.id); setError(null)
-    try { await projectsApi.setPushEnabled(p.id, !p.pushEnabled); await refresh(); fetchGitStatus(p.id, true) }
-    catch (e) { setError(extractError(e)) }
-    finally { setBusyId(null) }
-  }
-
   // Keep URL hash in sync with active category so refresh preserves the view.
   useEffect(() => {
     const desired = activeCategory === 'ALL' ? '' : `#/${activeCategory.toLowerCase()}`
@@ -170,6 +164,7 @@ export function App() {
         onOpenFloating={() => setSidebarFloating(true)}
         onCloseFloating={() => setSidebarFloating(false)}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenPushControl={() => setShowPushControl(true)}
       />
       <div className="app-main">
         <div className="header">
@@ -201,7 +196,6 @@ export function App() {
               onGitRefresh={(p) => fetchGitStatus(p.id, true)}
               onReorder={handleReorder}
               onOpenFolder={handleOpenFolder}
-              onTogglePush={handleTogglePush}
             />
           )}
         </div>
@@ -232,6 +226,15 @@ export function App() {
       )}
       {showSettings && (
         <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
+      {showPushControl && (
+        <PushControlModal
+          projects={projects}
+          onClose={(changed) => {
+            setShowPushControl(false)
+            if (changed) { refresh(); refreshAllGit(projects.map(p => p.id), true) }
+          }}
+        />
       )}
     </div>
   )
