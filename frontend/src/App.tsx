@@ -28,7 +28,7 @@ export function App() {
   const [editing, setEditing] = useState<ProjectDto | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [logsFor, setLogsFor] = useState<ProjectDto | null>(null)
-  const [gitModal, setGitModal] = useState<{ project: ProjectDto; mode: 'sync' | 'changes' } | null>(null)
+  const [gitModal, setGitModal] = useState<{ project: ProjectDto; mode: 'sync' | 'changes' | 'pull' } | null>(null)
   const [gitStatus, setGitStatus] = useState<Record<string, GitStatusDto | undefined>>({})
   const [gitLoading, setGitLoading] = useState<Record<string, boolean>>({})
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>(readHashCategory())
@@ -196,6 +196,7 @@ export function App() {
               onDelete={handleDelete}
               onLogs={setLogsFor}
               onSync={(p) => setGitModal({ project: p, mode: 'sync' })}
+              onShowPull={(p) => setGitModal({ project: p, mode: 'pull' })}
               onShowChanges={(p) => setGitModal({ project: p, mode: 'changes' })}
               onGitRefresh={(p) => fetchGitStatus(p.id, true)}
               onReorder={handleReorder}

@@ -12,6 +12,7 @@ interface Props {
   onDelete: (p: ProjectDto) => void
   onLogs: (p: ProjectDto) => void
   onSync: (p: ProjectDto) => void
+  onShowPull: (p: ProjectDto) => void
   onShowChanges: (p: ProjectDto) => void
   onGitRefresh: (p: ProjectDto) => void
   onReorder: (orderedIds: string[]) => void
@@ -89,6 +90,7 @@ function renderGitBadge(s: GitStatusDto): { cls: string; text: string; title: st
 
 interface GitHandlers {
   onSync: (p: ProjectDto) => void
+  onShowPull: (p: ProjectDto) => void
   onShowChanges: (p: ProjectDto) => void
   onGitRefresh: (p: ProjectDto) => void
   onTogglePush: (p: ProjectDto) => void
@@ -101,7 +103,7 @@ function renderGit(
   busy: boolean,
   handlers: GitHandlers,
 ): JSX.Element {
-  const { onSync, onShowChanges, onGitRefresh, onTogglePush } = handlers
+  const { onSync, onShowPull, onShowChanges, onGitRefresh, onTogglePush } = handlers
   if (!status) {
     return <span className="muted">{loading ? '…' : '—'}</span>
   }
@@ -110,6 +112,9 @@ function renderGit(
   const needsSync = status.repo && !status.error && !status.inSync
   const hasChanges = status.repo && !status.error &&
     (status.staged + status.modified + status.untracked + status.conflicting) > 0
+  // No local changes but behind remote: make the badge clickable so the user can
+  // open the pull view and fast-forward from there.
+  const behindOnly = !hasChanges && status.repo && !status.error && status.behind > 0
   return (
     <span className="git-cell">
       {status.repo && (
@@ -124,7 +129,7 @@ function renderGit(
           {p.pushEnabled ? '🔓' : '🔒'}
         </button>
       )}
-      {hasChanges ? (
+      {hasChanges && (
         <button
           type="button"
           className={`${cls} git-badge-btn`}
@@ -133,7 +138,18 @@ function renderGit(
         >
           {text}
         </button>
-      ) : (
+      )}
+      {!hasChanges && behindOnly && (
+        <button
+          type="button"
+          className={`${cls} git-badge-btn`}
+          title={`${title} — click to pull`}
+          onClick={(e) => { e.stopPropagation(); onShowPull(p) }}
+        >
+          {text}
+        </button>
+      )}
+      {!hasChanges && !behindOnly && (
         <span className={cls} title={title}>{text}</span>
       )}
       {status.repo && needsSync && (
@@ -158,7 +174,7 @@ function renderGit(
   )
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onShowChanges, onGitRefresh, onReorder, onOpenFolder, onTogglePush }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder, onTogglePush }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -227,7 +243,7 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
               </td>
               <td>{p.pid ?? '-'}</td>
               <td>{uptime(p.startedAt)}</td>
-              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, { onSync, onShowChanges, onGitRefresh, onTogglePush })}</td>
+              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, { onSync, onShowPull, onShowChanges, onGitRefresh, onTogglePush })}</td>
               <td className="root-cell muted">
                 <button
                   className="open-folder-btn"

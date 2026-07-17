@@ -5,7 +5,7 @@ import { extractError, gitApi } from '../api'
 interface Props {
   project: ProjectDto
   status: GitStatusDto | null
-  mode?: 'sync' | 'changes'
+  mode?: 'sync' | 'changes' | 'pull'
   onClose: (changed: boolean) => void
   onGoSync?: () => void
   onRefresh?: () => void
@@ -104,6 +104,59 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
   }
 
   const handleClose = () => onClose(!!result?.success)
+
+  if (mode === 'pull') {
+    const canPull = !!status && status.repo && !status.error && status.behind > 0 && status.conflicting === 0
+    const done = !!result?.success
+    return (
+      <div className="modal-backdrop">
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 560 }}>
+          <h2>Pull — {project.name}</h2>
+
+          {status && (
+            <div className="git-modal-status">
+              <div><span className="muted">Branch:</span> {status.branch ?? '-'}</div>
+              <div><span className="muted">Remote:</span> {status.remoteUrl ?? '-'}</div>
+              <div><span className="muted">vs remote:</span> ahead {status.ahead}, behind {status.behind}</div>
+            </div>
+          )}
+
+          {status && status.behind > 0 && status.conflicting === 0 && (
+            <div className="git-sync-output">
+              Remote has {status.behind} new commit(s). Pull to fast-forward your local branch.
+            </div>
+          )}
+          {status && status.conflicting > 0 && (
+            <div className="error-banner">
+              Repository has unresolved merge conflicts. Resolve them before pulling.
+            </div>
+          )}
+
+          {result && (
+            <div className={result.success ? 'git-sync-output ok' : 'git-sync-output fail'}>
+              {!result.success && result.message && <div className="fail-msg">{result.message}</div>}
+              <pre>{result.steps.join('\n')}</pre>
+            </div>
+          )}
+          {error && <div className="error-banner">{error}</div>}
+
+          <div className="form-actions">
+            <button onClick={handleClose} disabled={busy}>Close</button>
+            {!done && (
+              <button
+                className="primary"
+                onClick={handlePull}
+                disabled={busy || !canPull}
+                title="Fast-forward pull the behind commit(s) from remote"
+              >
+                {busy ? 'Pulling…' : `Pull ↓ ${status?.behind ?? 0}`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (mode === 'changes') {
     const files = status?.files ?? []
