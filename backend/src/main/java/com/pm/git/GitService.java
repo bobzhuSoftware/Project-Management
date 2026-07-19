@@ -166,6 +166,18 @@ public class GitService {
      * resolve it manually.
      */
     public GitSyncResultDto pull(String projectId) {
+        return pull(projectId, false);
+    }
+
+    /**
+     * Fast-forwards the current branch to its upstream. When {@code force} is
+     * true and the pull is blocked only because uncommitted local changes would
+     * be overwritten, the exact blocking files are discarded (restored to HEAD)
+     * and the fast-forward is retried, so the remote version wins for those
+     * files while every other local change is left untouched. Local commits are
+     * never discarded (this never runs {@code reset --hard}).
+     */
+    public GitSyncResultDto pull(String projectId, boolean force) {
         Project p = projectRepo.findById(projectId)
                 .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + projectId));
 
@@ -190,7 +202,14 @@ public class GitService {
             }
 
             runGit(root, steps, GIT_FETCH_TIMEOUT_SECONDS, true, "fetch", "--prune");
-            runGit(root, steps, "merge", "--ff-only", "@{u}");
+            try {
+                runGit(root, steps, "merge", "--ff-only", "@{u}");
+            } catch (GitCommandException mergeErr) {
+                if (!force || !discardBlockingFiles(root, steps, mergeErr)) {
+                    throw mergeErr;
+                }
+                runGit(root, steps, "merge", "--ff-only", "@{u}");
+            }
 
             GitStatusDto post = computeStatus(p, false);
             cache.put(projectId, new CachedStatus(post, Instant.now()));
@@ -202,9 +221,69 @@ public class GitService {
             if (msg != null && msg.contains("Not possible to fast-forward")) {
                 msg = "Local and remote branches have diverged \u2014 fast-forward pull not possible. "
                         + "Commit or stash your local commits and merge/rebase manually.";
+            } else if (e.fullOutput != null && e.fullOutput.contains("would be overwritten by merge")) {
+                List<String> blocked = parseOverwrittenFiles(e.fullOutput);
+                if (!blocked.isEmpty()) {
+                    StringBuilder sb = new StringBuilder(
+                            "Pull blocked \u2014 your uncommitted local changes to these file(s) "
+                                    + "would be overwritten:\n");
+                    for (String f : blocked) {
+                        sb.append("  \u2022 ").append(f).append('\n');
+                    }
+                    sb.append("\nCommit, stash, or discard these changes, then pull again \u2014 "
+                            + "or use Force pull to overwrite them with the remote version.");
+                    msg = sb.toString();
+                }
             }
             return GitSyncResultDto.fail(msg, steps, curr);
         }
+    }
+
+    /**
+     * If {@code mergeErr} is the "local changes would be overwritten" failure,
+     * discards the exact blocking files (restores them to HEAD so the merge can
+     * fast-forward) and returns {@code true}. Returns {@code false} for any
+     * other failure so the caller can rethrow it unchanged.
+     */
+    private boolean discardBlockingFiles(File root, List<String> steps, GitCommandException mergeErr)
+            throws GitCommandException {
+        if (mergeErr.fullOutput == null || !mergeErr.fullOutput.contains("would be overwritten by merge")) {
+            return false;
+        }
+        List<String> blocked = parseOverwrittenFiles(mergeErr.fullOutput);
+        if (blocked.isEmpty()) {
+            return false;
+        }
+        List<String> args = new ArrayList<>(List.of("checkout", "HEAD", "--"));
+        args.addAll(blocked);
+        runGit(root, steps, args.toArray(new String[0]));
+        return true;
+    }
+
+    /**
+     * Extracts the exact file list git reports in its "Your local changes to the
+     * following files would be overwritten by merge:" error. Only the lines
+     * between that header and git's trailer ("Please commit..." / "Aborting")
+     * are the blocking files; everything else is ignored.
+     */
+    private List<String> parseOverwrittenFiles(String output) {
+        List<String> files = new ArrayList<>();
+        boolean collecting = false;
+        for (String raw : output.split("\\R")) {
+            String line = raw.strip();
+            if (line.endsWith("would be overwritten by merge:")) {
+                collecting = true;
+                continue;
+            }
+            if (!collecting) {
+                continue;
+            }
+            if (line.isEmpty() || line.startsWith("Please commit") || line.startsWith("Aborting")) {
+                break;
+            }
+            files.add(line);
+        }
+        return files;
     }
 
     /**
@@ -221,11 +300,7 @@ public class GitService {
             throw new IllegalArgumentException("Not a git repository: " + p.getRootDirectory());
         }
 
-        String rel = path == null ? "" : path.replace('\\', '/').trim();
-        // Reject path traversal, absolute paths and drive-letter prefixes.
-        if (rel.isEmpty() || rel.startsWith("/") || rel.contains("..") || rel.matches("^[A-Za-z]:.*")) {
-            throw new IllegalArgumentException("Invalid path: " + path);
-        }
+        String rel = sanitizeRelPath(path);
 
         try {
             String out;
@@ -243,6 +318,97 @@ public class GitService {
         } catch (GitCommandException e) {
             throw new IllegalStateException("Failed to compute diff: " + e.getMessage());
         }
+    }
+
+    /**
+     * Lists the files a pull would bring in — the diff between local HEAD and the
+     * upstream tracking ref ({@code HEAD..@{u}}). Fetches first so the list
+     * reflects the current remote; if the fetch fails (offline) the last-known
+     * upstream ref is used instead. {@code staged} is always false on the
+     * returned entries — these are incoming (not local) changes.
+     */
+    public List<GitFileChange> incoming(String projectId) {
+        Project p = projectRepo.findById(projectId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + projectId));
+
+        File root = new File(p.getRootDirectory());
+        if (!root.isDirectory() || !isGitRepo(root)) {
+            throw new IllegalArgumentException("Not a git repository: " + p.getRootDirectory());
+        }
+
+        try {
+            try {
+                fetchQuietly(root);
+            } catch (GitCommandException fetchErr) {
+                log.debug("incoming(): fetch failed for {}: {}", p.getName(), fetchErr.getMessage());
+            }
+            String out = runGitCapture(root, "diff", "--name-status", "HEAD..@{u}");
+            return parseNameStatus(out);
+        } catch (GitCommandException e) {
+            throw new IllegalStateException("Failed to list incoming changes: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Returns the unified diff of a single incoming file — what a pull would
+     * change for {@code path}, computed as {@code git diff HEAD..@{u} -- path}.
+     */
+    public GitDiffDto incomingDiff(String projectId, String path) {
+        Project p = projectRepo.findById(projectId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + projectId));
+
+        File root = new File(p.getRootDirectory());
+        if (!root.isDirectory() || !isGitRepo(root)) {
+            throw new IllegalArgumentException("Not a git repository: " + p.getRootDirectory());
+        }
+
+        String rel = sanitizeRelPath(path);
+        try {
+            String out = runGitCapture(root, "diff", "HEAD..@{u}", "--", rel);
+            boolean truncated = out.length() >= DIFF_MAX_BYTES;
+            boolean binary = out.contains("Binary files") || out.contains("GIT binary patch");
+            return new GitDiffDto(rel, false, binary, truncated, out);
+        } catch (GitCommandException e) {
+            throw new IllegalStateException("Failed to compute incoming diff: " + e.getMessage());
+        }
+    }
+
+    /** Normalises a client-supplied path and rejects traversal / absolute paths. */
+    private String sanitizeRelPath(String path) {
+        String rel = path == null ? "" : path.replace('\\', '/').trim();
+        if (rel.isEmpty() || rel.startsWith("/") || rel.contains("..") || rel.matches("^[A-Za-z]:.*")) {
+            throw new IllegalArgumentException("Invalid path: " + path);
+        }
+        return rel;
+    }
+
+    /**
+     * Parses {@code git diff --name-status} output into file-change entries.
+     * Rename/copy lines carry the destination path in the third column.
+     */
+    private List<GitFileChange> parseNameStatus(String out) {
+        List<GitFileChange> files = new ArrayList<>();
+        for (String raw : out.split("\\R")) {
+            String line = raw.strip();
+            if (line.isEmpty()) {
+                continue;
+            }
+            String[] parts = line.split("\\t");
+            if (parts.length < 2) {
+                continue;
+            }
+            char code = parts[0].charAt(0);
+            String type = switch (code) {
+                case 'A' -> "ADDED";
+                case 'D' -> "DELETED";
+                case 'R' -> "RENAMED";
+                case 'C' -> "ADDED";
+                default  -> "MODIFIED";
+            };
+            String filePath = ((code == 'R' || code == 'C') && parts.length >= 3) ? parts[2] : parts[1];
+            files.add(new GitFileChange(filePath, type, false));
+        }
+        return files;
     }
 
     /**
@@ -602,7 +768,7 @@ public class GitService {
     }
 
     private static class GitCommandException extends Exception {
-        @SuppressWarnings("unused") final String fullOutput;
+        final String fullOutput;
         GitCommandException(String message, String fullOutput) {
             super(message);
             this.fullOutput = fullOutput;

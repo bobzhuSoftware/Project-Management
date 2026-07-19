@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings, GitDiffDto, GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto } from './types'
+import type { AppSettings, GitDiffDto, GitFileChange, GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto } from './types'
 
 const api = axios.create({ baseURL: '/api', timeout: 30000 })
 
@@ -38,10 +38,14 @@ export const gitApi = {
     api.get<GitStatusDto>(`/projects/${id}/git/status`, { params: { refresh, checkRemote } }).then(r => r.data),
   sync: (id: string, message: string) =>
     api.post<GitSyncResultDto>(`/projects/${id}/git/sync`, { message }).then(r => r.data),
-  pull: (id: string) =>
-    api.post<GitSyncResultDto>(`/projects/${id}/git/pull`).then(r => r.data),
+  pull: (id: string, force = false) =>
+    api.post<GitSyncResultDto>(`/projects/${id}/git/pull`, null, { params: { force } }).then(r => r.data),
   diff: (id: string, path: string, staged: boolean) =>
     api.get<GitDiffDto>(`/projects/${id}/git/diff`, { params: { path, staged } }).then(r => r.data),
+  incoming: (id: string) =>
+    api.get<GitFileChange[]>(`/projects/${id}/git/incoming`).then(r => r.data),
+  incomingDiff: (id: string, path: string) =>
+    api.get<GitDiffDto>(`/projects/${id}/git/incoming-diff`, { params: { path } }).then(r => r.data),
 }
 
 export const settingsApi = {

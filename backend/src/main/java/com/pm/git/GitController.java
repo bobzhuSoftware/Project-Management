@@ -31,6 +31,16 @@ public class GitController {
         return gitService.diff(id, path, staged);
     }
 
+    @GetMapping("/incoming")
+    public java.util.List<GitFileChange> incoming(@PathVariable String id) {
+        return gitService.incoming(id);
+    }
+
+    @GetMapping("/incoming-diff")
+    public GitDiffDto incomingDiff(@PathVariable String id, @RequestParam String path) {
+        return gitService.incomingDiff(id, path);
+    }
+
     @PostMapping("/sync")
     public GitSyncResultDto sync(@PathVariable String id, @RequestBody(required = false) SyncRequest body) {
         String message = body != null ? body.message : null;
@@ -38,8 +48,9 @@ public class GitController {
     }
 
     @PostMapping("/pull")
-    public GitSyncResultDto pull(@PathVariable String id) {
-        return gitService.pull(id);
+    public GitSyncResultDto pull(@PathVariable String id,
+                                 @RequestParam(name = "force", defaultValue = "false") boolean force) {
+        return gitService.pull(id, force);
     }
 
     public static class SyncRequest {
