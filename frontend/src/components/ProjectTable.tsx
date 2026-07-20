@@ -269,6 +269,15 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                 {stoppable && (
                   <button className="danger" disabled={busy} onClick={() => onStop(p)}>Stop</button>
                 )}
+                {(() => {
+                  const openPort = stoppable ? pickOpenPort(p) : null
+                  return openPort != null ? (
+                    <button onClick={() => window.open(`http://localhost:${openPort}`, '_blank', 'noopener,noreferrer')}>
+                      Open
+                    </button>
+                  ) : null
+                })()}
+                <button disabled={busy} onClick={() => onLogs(p)}>Logs</button>
                 <button
                   className={`action-menu-btn${menuFor?.id === p.id ? ' open' : ''}`}
                   disabled={busy}
@@ -290,18 +299,11 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
       const running = p.status === 'RUNNING' || p.status === 'ATTACHED'
       const external = p.status === 'EXTERNAL'
       const stoppable = running || external
-      const openPort = stoppable ? pickOpenPort(p) : null
       const run = (fn: () => void) => { closeMenu(); fn() }
       return (
         <>
           <div className="action-menu-backdrop" onClick={closeMenu} />
           <div className="action-menu" style={{ top: menuFor.y + 4, left: menuFor.x - 150 }}>
-            {openPort != null && (
-              <button onClick={() => run(() => window.open(`http://localhost:${openPort}`, '_blank', 'noopener,noreferrer'))}>
-                Open
-              </button>
-            )}
-            <button onClick={() => run(() => onLogs(p))}>Logs</button>
             <button onClick={() => run(() => onEdit(p))}>Edit</button>
             {p.cleanCommand && (
               <button
