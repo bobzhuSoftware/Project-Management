@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GitStatusDto, ProjectDto } from '../types'
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   gitLoading: Record<string, boolean>
   onStart: (p: ProjectDto) => void
   onStop: (p: ProjectDto) => void
+  onClean: (p: ProjectDto) => void
   onEdit: (p: ProjectDto) => void
   onDelete: (p: ProjectDto) => void
   onLogs: (p: ProjectDto) => void
@@ -168,10 +169,24 @@ function renderGit(
   )
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onClean, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [menuFor, setMenuFor] = useState<{ id: string; x: number; y: number } | null>(null)
+
+  const openMenu = (e: React.MouseEvent, id: string) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setMenuFor(prev => (prev?.id === id ? null : { id, x: r.right, y: r.bottom }))
+  }
+  const closeMenu = () => setMenuFor(null)
+
+  useEffect(() => {
+    if (!menuFor) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeMenu() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuFor])
 
   const handleDragStart = (idx: number) => {
     dragItem.current = idx
@@ -195,6 +210,7 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
   }
 
   return (
+    <>
     <table>
       <thead>
         <tr>
@@ -205,8 +221,8 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
           <th>PID</th>
           <th>Uptime</th>
           <th>Git</th>
-          <th>Root</th>
           <th>Actions</th>
+          <th className="row-spacer"></th>
         </tr>
       </thead>
       <tbody>
@@ -215,7 +231,6 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
           const external = p.status === 'EXTERNAL'
           const stoppable = running || external
           const busy = busyId === p.id
-          const openPort = stoppable ? pickOpenPort(p) : null
           return (
             <tr
               key={p.id}
@@ -227,9 +242,18 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
               className={dragIdx === idx ? 'dragging' : undefined}
             >
               <td className="drag-handle" title="拖动排序">⠿</td>
-              <td>
-                <div>{p.name}</div>
-                {p.description && <div className="muted">{p.description}</div>}
+              <td className="name-cell">
+                <div className="name-row">
+                  <span className="name-text">{p.name}</span>
+                  <button
+                    className="open-folder-btn"
+                    title={`打开目录：${p.rootDirectory}`}
+                    onClick={() => onOpenFolder(p)}
+                  >
+                    📂
+                  </button>
+                </div>
+                {p.description && <div className="muted name-desc">{p.description}</div>}
               </td>
               <td><span className={`badge ${p.status}`}>{p.status}</span></td>
               <td>
@@ -238,16 +262,6 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
               <td>{p.pid ?? '-'}</td>
               <td>{uptime(p.startedAt)}</td>
               <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, { onSync, onShowPull, onShowChanges, onGitRefresh })}</td>
-              <td className="root-cell muted">
-                <button
-                  className="open-folder-btn"
-                  title="在文件资源管理器中打开此目录"
-                  onClick={() => onOpenFolder(p)}
-                >
-                  📂
-                </button>
-                <span className="root-path" title={p.rootDirectory}>{p.rootDirectory}</span>
-              </td>
               <td className="actions">
                 {!running && !external && (
                   <button className="success" disabled={busy} onClick={() => onStart(p)}>Start</button>
@@ -255,23 +269,60 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                 {stoppable && (
                   <button className="danger" disabled={busy} onClick={() => onStop(p)}>Stop</button>
                 )}
-                {openPort != null && (
-                  <button
-                    disabled={busy}
-                    title={`在新标签页打开 http://localhost:${openPort}`}
-                    onClick={() => window.open(`http://localhost:${openPort}`, '_blank', 'noopener,noreferrer')}
-                  >
-                    Open
-                  </button>
-                )}
-                <button disabled={busy} onClick={() => onLogs(p)}>Logs</button>
-                <button disabled={busy} onClick={() => onEdit(p)}>Edit</button>
-                <button disabled={busy || running} onClick={() => onDelete(p)}>Delete</button>
+                <button
+                  className={`action-menu-btn${menuFor?.id === p.id ? ' open' : ''}`}
+                  disabled={busy}
+                  title="更多操作"
+                  onClick={(e) => openMenu(e, p.id)}
+                >
+                  ⋯
+                </button>
               </td>
+              <td className="row-spacer"></td>
             </tr>
           )
         })}
       </tbody>
     </table>
+    {menuFor && (() => {
+      const p = projects.find(x => x.id === menuFor.id)
+      if (!p) return null
+      const running = p.status === 'RUNNING' || p.status === 'ATTACHED'
+      const external = p.status === 'EXTERNAL'
+      const stoppable = running || external
+      const openPort = stoppable ? pickOpenPort(p) : null
+      const run = (fn: () => void) => { closeMenu(); fn() }
+      return (
+        <>
+          <div className="action-menu-backdrop" onClick={closeMenu} />
+          <div className="action-menu" style={{ top: menuFor.y + 4, left: menuFor.x - 150 }}>
+            {openPort != null && (
+              <button onClick={() => run(() => window.open(`http://localhost:${openPort}`, '_blank', 'noopener,noreferrer'))}>
+                Open
+              </button>
+            )}
+            <button onClick={() => run(() => onLogs(p))}>Logs</button>
+            <button onClick={() => run(() => onEdit(p))}>Edit</button>
+            {p.cleanCommand && (
+              <button
+                disabled={stoppable}
+                title={stoppable ? '请先停止项目再清理' : '运行 clean 命令清理构建产物'}
+                onClick={() => run(() => onClean(p))}
+              >
+                Clean
+              </button>
+            )}
+            <button
+              className="danger-text"
+              disabled={running}
+              onClick={() => run(() => onDelete(p))}
+            >
+              Delete
+            </button>
+          </div>
+        </>
+      )
+    })()}
+    </>
   )
 }

@@ -17,6 +17,7 @@ public class ProjectRequest {
     public String startCommand;
 
     public String stopCommand;
+    public String cleanCommand;
     public List<Integer> ports = new ArrayList<>();
     public String description;
     public ProjectCategory category;

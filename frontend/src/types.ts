@@ -8,6 +8,7 @@ export interface ProjectDto {
   rootDirectory: string
   startCommand: string
   stopCommand?: string | null
+  cleanCommand?: string | null
   ports: number[]
   description?: string | null
   category: ProjectCategory

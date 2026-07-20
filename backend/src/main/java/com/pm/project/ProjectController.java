@@ -59,6 +59,11 @@ public class ProjectController {
         return service.stop(id);
     }
 
+    @PostMapping("/{id}/clean")
+    public ResponseEntity<String> clean(@PathVariable String id) {
+        return ResponseEntity.ok(service.clean(id));
+    }
+
     @PutMapping("/{id}/push-enabled")
     public ProjectResponse setPushEnabled(@PathVariable String id, @RequestBody PushToggleRequest body) {
         return service.setPushEnabled(id, body.enabled);

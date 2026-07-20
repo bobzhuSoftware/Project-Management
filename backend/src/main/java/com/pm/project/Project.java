@@ -44,6 +44,9 @@ public class Project {
     @Column(name = "stop_command", length = 2000)
     private String stopCommand;
 
+    @Column(name = "clean_command", length = 2000)
+    private String cleanCommand;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "project_ports", joinColumns = @JoinColumn(name = "project_id"))
     @Column(name = "port")

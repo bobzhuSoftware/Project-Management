@@ -198,6 +198,56 @@ public class ProcessSupervisor {
         log.info("Stopped {} (pid={})", project.getName(), pid);
     }
 
+    /**
+     * Run the project's clean command synchronously. Requires the project to be stopped so build
+     * artifacts (target/, node_modules, ...) are not locked. Returns the combined stdout/stderr.
+     */
+    public synchronized String clean(Project project) {
+        if (project.getCleanCommand() == null || project.getCleanCommand().isBlank()) {
+            throw new IllegalStateException("No clean command configured for: " + project.getName());
+        }
+        ProjectStatus status = statusOf(project);
+        if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
+            throw new IllegalStateException("Stop the project before cleaning it.");
+        }
+
+        File workDir = new File(project.getRootDirectory());
+        if (!workDir.isDirectory()) {
+            throw new IllegalArgumentException("Root directory does not exist: " + project.getRootDirectory());
+        }
+
+        ProcessBuilder pb = new ProcessBuilder(
+                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
+                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " +
+                "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
+                "& cmd.exe /c '" + escapeForPowerShell(project.getCleanCommand()) + "'");
+        pb.directory(workDir);
+        pb.redirectErrorStream(true);
+        applyUtf8AndNoColorEnv(pb);
+        applyConfiguredJavaHome(pb);
+        applyConfiguredNodeHome(pb);
+
+        try {
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            boolean finished = p.waitFor(120, TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                throw new IllegalStateException("Clean timed out after 120s for: " + project.getName());
+            }
+            int exit = p.exitValue();
+            if (exit != 0) {
+                throw new IllegalStateException("Clean failed (exit " + exit + "):\n" + output);
+            }
+            log.info("Cleaned {} (cmd={})", project.getName(), project.getCleanCommand());
+            return output;
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new RuntimeException("Clean failed for " + project.getName() + ": " + e.getMessage(), e);
+        }
+    }
+
     /** Resolve current status without mutation. */
     public ProjectStatus statusOf(Project project) {
         ManagedProcess mp = live.get(project.getId());

@@ -170,9 +170,18 @@ td.actions button { margin-right: 6px; }
 .push-control-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .push-control-table tbody tr:hover { background: rgba(148, 163, 184, 0.08); }
 
-.root-cell { max-width: 220px; }
-.root-cell .root-path { display: inline-block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .open-folder-btn { padding: 2px 6px; font-size: 12px; margin-right: 6px; vertical-align: middle; line-height: 1; }
+
+/* Name column: content-sized, name truncates if very long */
+td.name-cell { max-width: 320px; }
+.name-cell .name-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.name-cell .name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name-cell .name-row .open-folder-btn { flex: none; margin: 0; }
+.name-cell .name-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* Actions shrinks to content; trailing spacer eats leftover width so columns pack left */
+td.actions { width: 1%; white-space: nowrap; }
+.row-spacer { width: 100%; padding: 0; }
 
 .git-modal-status { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; font-size: 12px; margin-bottom: 12px; line-height: 1.6; }
 .git-modal-status .muted { font-size: 12px; margin-right: 4px; }
@@ -217,6 +226,23 @@ td.actions button { margin-right: 6px; }
 .git-sync-output.fail { background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.4); }
 .git-sync-output .fail-msg { color: var(--red); margin-bottom: 6px; font-weight: 600; }
 .git-sync-output pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: 'Consolas', monospace; color: var(--text); }
+
+/* Row actions overflow menu */
+.action-menu-btn { padding: 6px 10px; font-weight: 700; line-height: 1; }
+.action-menu-btn.open { background: var(--border); }
+.action-menu-backdrop { position: fixed; inset: 0; z-index: 50; }
+.action-menu {
+  position: fixed; z-index: 51; min-width: 150px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  display: flex; flex-direction: column; padding: 4px; gap: 2px;
+}
+.action-menu button {
+  width: 100%; margin: 0; text-align: left; border: none; background: transparent;
+  padding: 7px 10px; border-radius: 4px;
+}
+.action-menu button:hover:not(:disabled) { background: var(--border); }
+.action-menu button.danger-text { color: var(--red); }
 
 /* Drag-and-drop reorder */
 .drag-handle { cursor: grab; user-select: none; color: var(--muted); font-size: 16px; width: 24px; text-align: center; }

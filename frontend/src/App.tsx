@@ -101,6 +101,16 @@ export function App() {
     catch (e) { setError(extractError(e)) }
     finally { setBusyId(null) }
   }
+  const handleClean = async (p: ProjectDto) => {
+    setBusyId(p.id); setError(null)
+    try {
+      const output = await projectsApi.clean(p.id)
+      await refresh(); fetchGitStatus(p.id, true)
+      alert(`Clean 完成：${p.name}\n\n${output || '(no output)'}`)
+    }
+    catch (e) { setError(extractError(e)) }
+    finally { setBusyId(null) }
+  }
   const handleDelete = async (p: ProjectDto) => {
     if (!confirm(`Delete "${p.name}"?`)) return
     setBusyId(p.id); setError(null)
@@ -187,6 +197,7 @@ export function App() {
               gitLoading={gitLoading}
               onStart={handleStart}
               onStop={handleStop}
+              onClean={handleClean}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onLogs={setLogsFor}

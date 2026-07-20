@@ -89,6 +89,12 @@ public class ProjectService {
         return toResponse(p);
     }
 
+    @Transactional(readOnly = true)
+    public String clean(String id) {
+        Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
+        return supervisor.clean(p);
+    }
+
     @Transactional
     public ProjectResponse setPushEnabled(String id, boolean enabled) {
         Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
@@ -141,6 +147,7 @@ public class ProjectService {
         p.setRootDirectory(req.rootDirectory.trim());
         p.setStartCommand(req.startCommand.trim());
         p.setStopCommand(req.stopCommand != null ? req.stopCommand.trim() : null);
+        p.setCleanCommand(req.cleanCommand != null ? req.cleanCommand.trim() : null);
         p.setPorts(req.ports != null ? new ArrayList<>(req.ports) : new ArrayList<>());
         p.setDescription(req.description);
         p.setCategory(req.category != null ? req.category : ProjectCategory.APPLICATION);

@@ -20,6 +20,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
   const [rootDirectory, setRootDirectory] = useState(project?.rootDirectory ?? '')
   const [startCommand, setStartCommand] = useState(project?.startCommand ?? 'start-dev.cmd')
   const [stopCommand, setStopCommand] = useState(project?.stopCommand ?? '')
+  const [cleanCommand, setCleanCommand] = useState(project?.cleanCommand ?? '')
   const [ports, setPorts] = useState((project?.ports ?? []).join(', '))
   const [description, setDescription] = useState(project?.description ?? '')
   const [category, setCategory] = useState<ProjectCategory>(
@@ -49,6 +50,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
         rootDirectory: rootDirectory.trim(),
         startCommand: startCommand.trim(),
         stopCommand: stopCommand.trim() || undefined,
+        cleanCommand: cleanCommand.trim() || undefined,
         ports: parsedPorts,
         description: description.trim() || undefined,
         category,
@@ -94,6 +96,11 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
             <label>Stop Command (optional)</label>
             <textarea value={stopCommand} onChange={e => setStopCommand(e.target.value)}
                       placeholder="powershell -ExecutionPolicy Bypass -File stop-dev.ps1" />
+          </div>
+          <div className="form-row">
+            <label>Clean Command (optional, run only when stopped)</label>
+            <textarea value={cleanCommand} onChange={e => setCleanCommand(e.target.value)}
+                      placeholder="mvn clean" />
           </div>
           <div className="form-row">
             <label>Ports (multiple supported — e.g. web + API + DB. Used for status detection and kill fallback)</label>

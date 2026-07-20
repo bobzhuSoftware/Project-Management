@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS projects (
     root_directory  VARCHAR(1000) NOT NULL,
     start_command   VARCHAR(2000) NOT NULL,
     stop_command    VARCHAR(2000),
+    clean_command   VARCHAR(2000),
     description     VARCHAR(2000),
     category        VARCHAR(32)   NOT NULL DEFAULT 'APPLICATION',
     sort_order      INT           NOT NULL DEFAULT 0,

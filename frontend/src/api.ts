@@ -8,6 +8,7 @@ export interface ProjectPayload {
   rootDirectory: string
   startCommand: string
   stopCommand?: string
+  cleanCommand?: string
   ports: number[]
   description?: string
   category: ProjectCategory
@@ -21,6 +22,7 @@ export const projectsApi = {
   remove: (id: string) => api.delete(`/projects/${id}`),
   start: (id: string) => api.post<ProjectDto>(`/projects/${id}/start`).then(r => r.data),
   stop: (id: string) => api.post<ProjectDto>(`/projects/${id}/stop`).then(r => r.data),
+  clean: (id: string) => api.post<string>(`/projects/${id}/clean`).then(r => r.data),
   reorder: (orderedIds: string[]) => api.put('/projects/reorder', orderedIds),
   openFolder: (id: string) => api.post(`/projects/${id}/open-folder`),
   setPushEnabled: (id: string, enabled: boolean) =>

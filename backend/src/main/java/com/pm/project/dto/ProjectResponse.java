@@ -15,6 +15,7 @@ public class ProjectResponse {
     public String rootDirectory;
     public String startCommand;
     public String stopCommand;
+    public String cleanCommand;
     public List<Integer> ports;
     public String description;
     public ProjectCategory category;
@@ -41,6 +42,7 @@ public class ProjectResponse {
         r.rootDirectory = p.getRootDirectory();
         r.startCommand = p.getStartCommand();
         r.stopCommand = p.getStopCommand();
+        r.cleanCommand = p.getCleanCommand();
         r.ports = p.getPorts();
         r.description = p.getDescription();
         r.category = p.getCategory();
