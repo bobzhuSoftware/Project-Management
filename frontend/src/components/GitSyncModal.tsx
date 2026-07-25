@@ -52,6 +52,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
   const [result, setResult] = useState<GitSyncResultDto | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<GitFileChange | null>(null)
+  const [selectedIncoming, setSelectedIncoming] = useState(false)
   const [diffText, setDiffText] = useState<string>('')
   const [diffLoading, setDiffLoading] = useState(false)
   const [diffError, setDiffError] = useState<string | null>(null)
@@ -59,9 +60,10 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
   const [incomingLoading, setIncomingLoading] = useState(false)
   const [incomingError, setIncomingError] = useState<string | null>(null)
 
-  // In pull mode, preview the files a fast-forward would bring in (HEAD..@{u}).
+  // In pull and changes mode, preview the files a fast-forward would bring in
+  // (HEAD..@{u}) whenever the branch is behind the remote.
   useEffect(() => {
-    if (mode !== 'pull' || !status || status.behind <= 0 || status.conflicting > 0) return
+    if ((mode !== 'pull' && mode !== 'changes') || !status || status.behind <= 0 || status.conflicting > 0) return
     let cancelled = false
     setIncomingLoading(true); setIncomingError(null)
     gitApi.incoming(project.id)
@@ -77,6 +79,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
   const openDiff = async (f: GitFileChange) => {
     setSelected(f)
+    setSelectedIncoming(false)
     setDiffLoading(true); setDiffError(null); setDiffText('')
     try {
       const r = await gitApi.diff(project.id, f.path, f.staged)
@@ -94,6 +97,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
   const openIncomingDiff = async (f: GitFileChange) => {
     setSelected(f)
+    setSelectedIncoming(true)
     setDiffLoading(true); setDiffError(null); setDiffText('')
     try {
       const r = await gitApi.incomingDiff(project.id, f.path)
@@ -266,6 +270,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
     const files = status?.files ?? []
     const staged = files.filter(f => f.staged)
     const working = files.filter(f => !f.staged)
+    const showIncoming = !!status && status.behind > 0 && status.conflicting === 0
     const canSync = !!status && status.repo && !status.error &&
       status.behind === 0 && status.conflicting === 0 && status.hasUpstream && project.pushEnabled
     return (
@@ -278,6 +283,12 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
               <span className="muted">Branch:</span> {status.branch ?? '-'}
               <span className="dot"> · </span>
               {files.length} change{files.length === 1 ? '' : 's'}
+              {showIncoming && (
+                <>
+                  <span className="dot"> · </span>
+                  <span className="muted">behind:</span> ↓ {status.behind}
+                </>
+              )}
             </div>
           )}
 
@@ -287,9 +298,15 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
             </div>
           )}
 
+          {showIncoming && (
+            <div className="git-sync-output">
+              Remote has {status!.behind} new commit(s). Pull to fast-forward, then sync your local changes.
+            </div>
+          )}
+
           <div className="git-changes-body">
             <div className="git-file-list">
-              {files.length === 0 ? (
+              {files.length === 0 && !showIncoming ? (
                 <div className="empty">No local changes.</div>
               ) : (
                 <>
@@ -316,7 +333,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
                       <div className="git-file-group-title">Working tree — {working.length}</div>
                       <ul>
                         {working.map(f => {
-                          const active = selected?.path === f.path && selected?.staged === false
+                          const active = selected?.path === f.path && selected?.staged === false && !selectedIncoming
                           return (
                             <li key={`w:${f.path}`} className={`git-file unstaged${active ? ' active' : ''}`}>
                               <button type="button" className="git-file-btn" onClick={() => openDiff(f)}>
@@ -327,6 +344,31 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
                           )
                         })}
                       </ul>
+                    </div>
+                  )}
+                  {showIncoming && (
+                    <div className="git-file-group">
+                      <div className="git-file-group-title">Incoming (remote) — {incoming.length}</div>
+                      {incomingLoading && <div className="empty">Loading incoming changes…</div>}
+                      {!incomingLoading && incomingError && <div className="error-banner">{incomingError}</div>}
+                      {!incomingLoading && !incomingError && incoming.length === 0 && (
+                        <div className="empty">No file changes to preview.</div>
+                      )}
+                      {!incomingLoading && !incomingError && incoming.length > 0 && (
+                        <ul>
+                          {incoming.map(f => {
+                            const active = selected?.path === f.path && selectedIncoming
+                            return (
+                              <li key={`in:${f.path}`} className={`git-file incoming${active ? ' active' : ''}`}>
+                                <button type="button" className="git-file-btn" onClick={() => openIncomingDiff(f)}>
+                                  <span className={`git-file-tag tag-${f.type.toLowerCase()}`} title={typeLabel(f.type)}>{shortTag(f.type)}</span>
+                                  <span className="git-file-path" title={f.path}>{f.path}</span>
+                                </button>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
                     </div>
                   )}
                 </>
