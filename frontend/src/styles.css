@@ -151,6 +151,14 @@ td.actions button { margin-right: 6px; }
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
 .muted { color: var(--muted); font-size: 12px; }
 
+.message-dialog { width: 460px; }
+.message-dialog h2 { display: flex; align-items: center; gap: 8px; }
+.message-dialog-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.message-dialog.success .message-dialog-icon { background: rgba(74, 222, 128, 0.18); color: var(--green); }
+.message-dialog.error .message-dialog-icon { background: rgba(248, 113, 113, 0.18); color: var(--red); }
+.message-dialog-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.message-dialog-detail { margin: 12px 0 0; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font-family: 'Consolas', monospace; font-size: 12px; line-height: 1.4; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+
 .git-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .git-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .git-badge.ok { background: rgba(74, 222, 128, 0.18); color: var(--green); }

@@ -7,6 +7,7 @@ import { LogsDrawer } from './components/LogsDrawer'
 import { GitSyncModal } from './components/GitSyncModal'
 import { SettingsModal } from './components/SettingsModal'
 import { PushControlModal } from './components/PushControlModal'
+import { MessageDialog, type DialogState } from './components/MessageDialog'
 import { Sidebar, categoryTitle, type CategoryFilter, type SidebarMode } from './components/Sidebar'
 
 const VALID_CATEGORIES: CategoryFilter[] = ['ALL', 'APPLICATION', 'DATABASE', 'SCRIPT', 'OTHER']
@@ -37,6 +38,10 @@ export function App() {
   const [sidebarFloating, setSidebarFloating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPushControl, setShowPushControl] = useState(false)
+  const [dialog, setDialog] = useState<DialogState | null>(null)
+
+  const showError = (title: string, e: unknown) =>
+    setDialog({ variant: 'error', title, message: extractError(e) })
 
   const refresh = useCallback(async () => {
     try {
@@ -90,32 +95,32 @@ export function App() {
   }, [projectIdsKey, refreshAllGit])
 
   const handleStart = async (p: ProjectDto) => {
-    setBusyId(p.id); setError(null)
+    setBusyId(p.id)
     try { await projectsApi.start(p.id); await refresh(); fetchGitStatus(p.id, true) }
-    catch (e) { setError(extractError(e)) }
+    catch (e) { showError(`启动失败：${p.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleStop = async (p: ProjectDto) => {
-    setBusyId(p.id); setError(null)
+    setBusyId(p.id)
     try { await projectsApi.stop(p.id); await refresh(); fetchGitStatus(p.id, true) }
-    catch (e) { setError(extractError(e)) }
+    catch (e) { showError(`停止失败：${p.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleClean = async (p: ProjectDto) => {
-    setBusyId(p.id); setError(null)
+    setBusyId(p.id)
     try {
       const output = await projectsApi.clean(p.id)
       await refresh(); fetchGitStatus(p.id, true)
-      alert(`Clean 完成：${p.name}\n\n${output || '(no output)'}`)
+      setDialog({ variant: 'success', title: `Clean 完成：${p.name}`, message: '构建产物已清理。', detail: output || '(no output)' })
     }
-    catch (e) { setError(extractError(e)) }
+    catch (e) { showError(`Clean 失败：${p.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleDelete = async (p: ProjectDto) => {
     if (!confirm(`Delete "${p.name}"?`)) return
-    setBusyId(p.id); setError(null)
+    setBusyId(p.id)
     try { await projectsApi.remove(p.id); await refresh() }
-    catch (e) { setError(extractError(e)) }
+    catch (e) { showError(`删除失败：${p.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleEdit = (p: ProjectDto) => { setEditing(p); setShowForm(true) }
@@ -130,14 +135,13 @@ export function App() {
       await projectsApi.reorder(orderedIds)
       await refresh()
     } catch (e) {
-      setError(extractError(e))
+      showError('排序失败', e)
     }
   }
 
   const handleOpenFolder = async (p: ProjectDto) => {
-    setError(null)
     try { await projectsApi.openFolder(p.id) }
-    catch (e) { setError(extractError(e)) }
+    catch (e) { showError(`打开文件夹失败：${p.name}`, e) }
   }
 
   // Keep URL hash in sync with active category so refresh preserves the view.
@@ -246,6 +250,9 @@ export function App() {
             if (changed) { refresh(); refreshAllGit(projects.map(p => p.id), true) }
           }}
         />
+      )}
+      {dialog && (
+        <MessageDialog {...dialog} onClose={() => setDialog(null)} />
       )}
     </div>
   )
