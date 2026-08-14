@@ -20,14 +20,6 @@ interface Props {
   onOpenFolder: (p: ProjectDto) => void
 }
 
-function pickOpenPort(p: ProjectDto): number | null {
-  const registered = (p.ports ?? []).filter(x => typeof x === 'number')
-  if (registered.length > 0) return registered[0]
-  const detected = (p.detectedPorts ?? []).filter(x => typeof x === 'number')
-  if (detected.length > 0) return detected[0]
-  return null
-}
-
 function uptime(startedAt?: string | null): string {
   if (!startedAt) return '-'
   const ms = Date.now() - new Date(startedAt).getTime()
@@ -269,14 +261,6 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                 {stoppable && (
                   <button className="danger" disabled={busy} onClick={() => onStop(p)}>Stop</button>
                 )}
-                {(() => {
-                  const openPort = stoppable ? pickOpenPort(p) : null
-                  return openPort != null ? (
-                    <button onClick={() => window.open(`http://localhost:${openPort}`, '_blank', 'noopener,noreferrer')}>
-                      Open
-                    </button>
-                  ) : null
-                })()}
                 <button disabled={busy} onClick={() => onLogs(p)}>Logs</button>
                 <button
                   className={`action-menu-btn${menuFor?.id === p.id ? ' open' : ''}`}
