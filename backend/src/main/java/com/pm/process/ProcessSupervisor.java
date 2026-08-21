@@ -1,5 +1,6 @@
 package com.pm.process;
 
+import com.pm.project.Launch;
 import com.pm.project.Project;
 import com.pm.project.ProjectRepository;
 import com.pm.project.ProjectStatus;
@@ -98,10 +99,10 @@ public class ProcessSupervisor {
         }
     }
 
-    /** Start a project. Throws if already running. */
-    public synchronized ManagedProcess start(Project project) {
-        if (statusOf(project) == ProjectStatus.RUNNING || statusOf(project) == ProjectStatus.ATTACHED) {
-            throw new IllegalStateException("Project already running: " + project.getName());
+    /** Start a launch of a project. Throws if already running. */
+    public synchronized ManagedProcess start(Launch launch, Project project) {
+        if (statusOf(launch.getId()) == ProjectStatus.RUNNING || statusOf(launch.getId()) == ProjectStatus.ATTACHED) {
+            throw new IllegalStateException("Launch already running: " + project.getName() + " / " + launch.getName());
         }
 
         File workDir = new File(project.getRootDirectory());
@@ -114,7 +115,7 @@ public class ProcessSupervisor {
                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
                 "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " +
                 "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                "& cmd.exe /c '" + escapeForPowerShell(project.getStartCommand()) + "'");
+                "& cmd.exe /c '" + escapeForPowerShell(launch.getStartCommand()) + "'");
         pb.directory(workDir);
         pb.redirectErrorStream(true);
         applyUtf8AndNoColorEnv(pb);
@@ -129,33 +130,33 @@ public class ProcessSupervisor {
         }
 
         Path logFile = Paths.get(logsDir,
-                project.getId() + "-" + LocalDate.now().format(DateTimeFormatter.ISO_DATE) + ".log");
-        ManagedProcess mp = new ManagedProcess(project.getId(), p, new RingBuffer(ringCapacity), logFile);
-        live.put(project.getId(), mp);
+                launch.getId() + "-" + LocalDate.now().format(DateTimeFormatter.ISO_DATE) + ".log");
+        ManagedProcess mp = new ManagedProcess(launch.getId(), p, new RingBuffer(ringCapacity), logFile);
+        live.put(launch.getId(), mp);
 
         RuntimeStateEntity state = new RuntimeStateEntity();
-        state.setProjectId(project.getId());
+        state.setLaunchId(launch.getId());
         state.setPid(p.pid());
         state.setStartedAt(mp.getStartedAt());
-        state.setRecordedPorts(project.getPorts());
+        state.setRecordedPorts(launch.getPorts());
         runtimeRepo.save(state);
 
-        log.info("Started {} (pid={}, cmd={})", project.getName(), p.pid(), project.getStartCommand());
+        log.info("Started {} / {} (pid={}, cmd={})", project.getName(), launch.getName(), p.pid(), launch.getStartCommand());
         return mp;
     }
 
-    /** Stop a project: optional stop command -> kill process tree -> kill by ports. */
-    public synchronized void stop(Project project) {
-        ManagedProcess mp = live.get(project.getId());
-        Optional<RuntimeStateEntity> stateOpt = runtimeRepo.findById(project.getId());
+    /** Stop a launch: optional stop command -> kill process tree -> kill by ports. */
+    public synchronized void stop(Launch launch, Project project) {
+        ManagedProcess mp = live.get(launch.getId());
+        Optional<RuntimeStateEntity> stateOpt = runtimeRepo.findById(launch.getId());
 
         // 1) Run user-provided stop command if any.
-        if (project.getStopCommand() != null && !project.getStopCommand().isBlank()) {
+        if (launch.getStopCommand() != null && !launch.getStopCommand().isBlank()) {
             try {
                 ProcessBuilder pb = new ProcessBuilder(
                         "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
                         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                        "& cmd.exe /c '" + escapeForPowerShell(project.getStopCommand()) + "'");
+                        "& cmd.exe /c '" + escapeForPowerShell(launch.getStopCommand()) + "'");
                 pb.directory(new File(project.getRootDirectory()));
                 pb.redirectErrorStream(true);
                 applyUtf8AndNoColorEnv(pb);
@@ -165,7 +166,7 @@ public class ProcessSupervisor {
                 p.waitFor(20, TimeUnit.SECONDS);
                 if (p.isAlive()) p.destroyForcibly();
             } catch (IOException | InterruptedException e) {
-                log.warn("stopCommand failed for {}: {}", project.getName(), e.getMessage());
+                log.warn("stopCommand failed for {} / {}: {}", project.getName(), launch.getName(), e.getMessage());
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             }
         }
@@ -184,7 +185,7 @@ public class ProcessSupervisor {
         }
 
         // 3) Belt-and-braces: kill anything still listening on declared ports.
-        List<Integer> ports = project.getPorts();
+        List<Integer> ports = launch.getPorts();
         if (ports != null && !ports.isEmpty()) {
             PortUtils.killByPorts(ports);
         }
@@ -192,23 +193,20 @@ public class ProcessSupervisor {
         // 4) Cleanup.
         if (mp != null) {
             mp.close();
-            live.remove(project.getId());
+            live.remove(launch.getId());
         }
         stateOpt.ifPresent(runtimeRepo::delete);
-        log.info("Stopped {} (pid={})", project.getName(), pid);
+        log.info("Stopped {} / {} (pid={})", project.getName(), launch.getName(), pid);
     }
 
     /**
-     * Run the project's clean command synchronously. Requires the project to be stopped so build
-     * artifacts (target/, node_modules, ...) are not locked. Returns the combined stdout/stderr.
+     * Run the project's clean command synchronously. The caller must ensure no launch of this
+     * project is running so build artifacts (target/, node_modules, ...) are not locked. Returns
+     * the combined stdout/stderr.
      */
     public synchronized String clean(Project project) {
         if (project.getCleanCommand() == null || project.getCleanCommand().isBlank()) {
             throw new IllegalStateException("No clean command configured for: " + project.getName());
-        }
-        ProjectStatus status = statusOf(project);
-        if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
-            throw new IllegalStateException("Stop the project before cleaning it.");
         }
 
         File workDir = new File(project.getRootDirectory());
@@ -249,19 +247,19 @@ public class ProcessSupervisor {
     }
 
     /** Resolve current status without mutation. */
-    public ProjectStatus statusOf(Project project) {
-        ManagedProcess mp = live.get(project.getId());
+    public ProjectStatus statusOf(String launchId) {
+        ManagedProcess mp = live.get(launchId);
         if (mp != null) {
             if (mp.isAlive()) {
                 return ProjectStatus.RUNNING;
             }
             // Process exited abnormally — evict from live registry and purge runtime record.
             mp.close();
-            live.remove(project.getId());
-            runtimeRepo.findById(project.getId()).ifPresent(runtimeRepo::delete);
+            live.remove(launchId);
+            runtimeRepo.findById(launchId).ifPresent(runtimeRepo::delete);
             return ProjectStatus.STOPPED;
         }
-        Optional<RuntimeStateEntity> stateOpt = runtimeRepo.findById(project.getId());
+        Optional<RuntimeStateEntity> stateOpt = runtimeRepo.findById(launchId);
         if (stateOpt.isPresent()) {
             Optional<ProcessHandle> handle = ProcessHandle.of(stateOpt.get().getPid());
             if (handle.isPresent() && handle.get().isAlive()) {
@@ -286,17 +284,17 @@ public class ProcessSupervisor {
     private final java.util.concurrent.ConcurrentHashMap<String, List<Integer>> portCache = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long PORT_CACHE_TTL_MS = 5_000;
 
-    /** Detect the actual TCP ports that the project's process tree is listening on. */
-    public List<Integer> detectListeningPorts(Project project) {
-        Long pid = live.containsKey(project.getId())
-                ? live.get(project.getId()).getPid()
-                : runtimeRepo.findById(project.getId()).map(RuntimeStateEntity::getPid).orElse(null);
+    /** Detect the actual TCP ports that the launch's process tree is listening on. */
+    public List<Integer> detectListeningPorts(String launchId) {
+        Long pid = live.containsKey(launchId)
+                ? live.get(launchId).getPid()
+                : runtimeRepo.findById(launchId).map(RuntimeStateEntity::getPid).orElse(null);
         if (pid == null) return List.of();
 
         long now = System.currentTimeMillis();
-        long[] ts = portCacheTs.get(project.getId());
+        long[] ts = portCacheTs.get(launchId);
         if (ts != null && now - ts[0] < PORT_CACHE_TTL_MS) {
-            List<Integer> cached = portCache.get(project.getId());
+            List<Integer> cached = portCache.get(launchId);
             if (cached != null) return cached;
         }
 
@@ -311,13 +309,13 @@ public class ProcessSupervisor {
         // Anything in there is almost always an internal socket (H2 AUTO_SERVER,
         // language runtime IPC, debug agent, etc.) — not a service the user
         // would point a browser at. Registered ports (those configured on the
-        // project) are still shown verbatim because they come from p.getPorts(),
+        // launch) are still shown verbatim because they come from launch.getPorts(),
         // not from this detection path.
         List<Integer> filtered = ports.stream()
                 .filter(p -> p > 0 && p < 49152)
                 .toList();
-        portCache.put(project.getId(), filtered);
-        portCacheTs.put(project.getId(), new long[]{now});
+        portCache.put(launchId, filtered);
+        portCacheTs.put(launchId, new long[]{now});
         return filtered;
     }
 

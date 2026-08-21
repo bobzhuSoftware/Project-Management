@@ -49,16 +49,6 @@ public class ProjectController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{id}/start")
-    public ProjectResponse start(@PathVariable String id) {
-        return service.start(id);
-    }
-
-    @PostMapping("/{id}/stop")
-    public ProjectResponse stop(@PathVariable String id) {
-        return service.stop(id);
-    }
-
     @PostMapping("/{id}/clean")
     public ResponseEntity<String> clean(@PathVariable String id) {
         return ResponseEntity.ok(service.clean(id));

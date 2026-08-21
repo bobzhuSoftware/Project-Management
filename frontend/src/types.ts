@@ -2,24 +2,32 @@ export type ProjectStatus = 'RUNNING' | 'ATTACHED' | 'EXTERNAL' | 'STOPPED' | 'E
 
 export type ProjectCategory = 'APPLICATION' | 'DATABASE' | 'SCRIPT' | 'OTHER'
 
+export interface LaunchDto {
+  id: string
+  projectId: string
+  name: string
+  startCommand: string
+  stopCommand?: string | null
+  ports: number[]
+  sortOrder: number
+  status: ProjectStatus
+  pid?: number | null
+  startedAt?: string | null
+  detectedPorts?: number[] | null
+}
+
 export interface ProjectDto {
   id: string
   name: string
   rootDirectory: string
-  startCommand: string
-  stopCommand?: string | null
   cleanCommand?: string | null
-  ports: number[]
   description?: string | null
   category: ProjectCategory
   sortOrder: number
   pushEnabled: boolean
   createdAt: string
   updatedAt: string
-  status: ProjectStatus
-  pid?: number | null
-  startedAt?: string | null
-  detectedPorts?: number[] | null
+  launches: LaunchDto[]
 }
 
 export type GitFileChangeType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'RENAMED' | 'UNTRACKED' | 'CONFLICT'
@@ -70,11 +78,18 @@ export interface AppSettings {
   nodeHome: string | null
 }
 
-export interface ProjectFormValues {
+export interface LaunchFormValues {
+  id?: string
   name: string
-  rootDirectory: string
   startCommand: string
   stopCommand: string
   ports: string // comma separated in form
+}
+
+export interface ProjectFormValues {
+  name: string
+  rootDirectory: string
+  cleanCommand: string
   description: string
+  launches: LaunchFormValues[]
 }

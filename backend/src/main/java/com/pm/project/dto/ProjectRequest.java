@@ -1,6 +1,7 @@
 package com.pm.project.dto;
 
 import com.pm.project.ProjectCategory;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.ArrayList;
@@ -13,13 +14,14 @@ public class ProjectRequest {
     @NotBlank
     public String rootDirectory;
 
-    @NotBlank
-    public String startCommand;
-
-    public String stopCommand;
+    /** Clean command lives at the repository level (shared across all launches). */
     public String cleanCommand;
-    public List<Integer> ports = new ArrayList<>();
+
     public String description;
     public ProjectCategory category;
     public Boolean pushEnabled;
+
+    /** One or more runnable configurations (startup scripts) for this project. */
+    @Valid
+    public List<LaunchRequest> launches = new ArrayList<>();
 }

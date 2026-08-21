@@ -2,8 +2,8 @@ package com.pm.logs;
 
 import com.pm.process.ManagedProcess;
 import com.pm.process.ProcessSupervisor;
-import com.pm.project.Project;
-import com.pm.project.ProjectRepository;
+import com.pm.project.Launch;
+import com.pm.project.LaunchRepository;
 import com.pm.project.ProjectService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,49 +30,49 @@ import java.util.List;
 import java.util.stream.Stream;
 
 @RestController
-@RequestMapping("/api/projects/{id}/logs")
+@RequestMapping("/api/launches/{launchId}/logs")
 @RequiredArgsConstructor
 public class LogsController {
 
-    private final ProjectRepository projectRepo;
+    private final LaunchRepository launchRepo;
     private final ProcessSupervisor supervisor;
 
     @Value("${pm.logs.dir}")
     private String logsDir;
 
     @GetMapping
-    public List<String> tail(@PathVariable String id,
+    public List<String> tail(@PathVariable String launchId,
                              @RequestParam(defaultValue = "500") int tail) {
-        ManagedProcess mp = supervisor.getLive(id).orElse(null);
+        ManagedProcess mp = supervisor.getLive(launchId).orElse(null);
         if (mp == null) return Collections.emptyList();
         return mp.getLogs().tail(tail);
     }
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@PathVariable String id) {
-        Project p = projectRepo.findById(id)
-                .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + id));
+    public SseEmitter stream(@PathVariable String launchId) {
+        Launch l = launchRepo.findById(launchId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Launch not found: " + launchId));
         SseEmitter emitter = new SseEmitter(0L); // no timeout
-        ManagedProcess mp = supervisor.getLive(p.getId()).orElse(null);
+        ManagedProcess mp = supervisor.getLive(l.getId()).orElse(null);
         if (mp != null) {
             mp.subscribe(emitter);
             return emitter;
         }
-        // No live ManagedProcess (e.g. backend was restarted and the project is now
-        // ATTACHED, or the project is STOPPED/EXTERNAL). Fall back to streaming the
-        // tail of the most recent on-disk log file so the user still sees content.
-        streamLatestFileTail(emitter, p);
+        // No live ManagedProcess (e.g. backend was restarted and the launch is now
+        // ATTACHED, or it is STOPPED/EXTERNAL). Fall back to streaming the tail of
+        // the most recent on-disk log file so the user still sees content.
+        streamLatestFileTail(emitter, l);
         return emitter;
     }
 
-    /** Stream the last ~500 lines of the most recent .log file for this project, then close. */
-    private void streamLatestFileTail(SseEmitter emitter, Project p) {
+    /** Stream the last ~500 lines of the most recent .log file for this launch, then close. */
+    private void streamLatestFileTail(SseEmitter emitter, Launch l) {
         Thread t = new Thread(() -> {
             try {
-                Path latest = findLatestLogFile(p.getId());
+                Path latest = findLatestLogFile(l.getId());
                 if (latest == null) {
                     emitter.send(SseEmitter.event().name("log")
-                            .data("[pm] no live process and no archived logs for " + p.getName()));
+                            .data("[pm] no live process and no archived logs for " + l.getName()));
                 } else {
                     emitter.send(SseEmitter.event().name("log")
                             .data("[pm] no live process — showing tail of " + latest.getFileName()));
@@ -82,21 +82,21 @@ public class LogsController {
                         emitter.send(SseEmitter.event().name("log").data(all.get(i)));
                     }
                     emitter.send(SseEmitter.event().name("log")
-                            .data("[pm] (end of archived log — start the project to resume live streaming)"));
+                            .data("[pm] (end of archived log — start the launch to resume live streaming)"));
                 }
                 emitter.complete();
             } catch (Exception e) {
                 try { emitter.completeWithError(e); } catch (Exception ignored) {}
             }
-        }, "pm-log-tail-" + p.getId());
+        }, "pm-log-tail-" + l.getId());
         t.setDaemon(true);
         t.start();
     }
 
-    private Path findLatestLogFile(String projectId) {
+    private Path findLatestLogFile(String launchId) {
         Path dir = Paths.get(logsDir);
         if (!Files.isDirectory(dir)) return null;
-        String prefix = projectId + "-";
+        String prefix = launchId + "-";
         try (Stream<Path> s = Files.list(dir)) {
             return s.filter(Files::isRegularFile)
                     .filter(pp -> {
@@ -113,15 +113,15 @@ public class LogsController {
         }
     }
 
-    /** List archived log files for this project, newest first. */
+    /** List archived log files for this launch, newest first. */
     @GetMapping("/history")
-    public List<LogFileEntry> history(@PathVariable String id) {
-        // Make sure the project exists (defensive; also normalises 404).
-        projectRepo.findById(id)
-                .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + id));
+    public List<LogFileEntry> history(@PathVariable String launchId) {
+        // Make sure the launch exists (defensive; also normalises 404).
+        launchRepo.findById(launchId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Launch not found: " + launchId));
         Path dir = Paths.get(logsDir);
         if (!Files.isDirectory(dir)) return List.of();
-        String prefix = id + "-";
+        String prefix = launchId + "-";
         try (Stream<Path> stream = Files.list(dir)) {
             return stream
                     .filter(Files::isRegularFile)
@@ -138,17 +138,17 @@ public class LogsController {
 
     /** Download / view the contents of one archived log file (plain text). */
     @GetMapping("/history/{filename}")
-    public ResponseEntity<String> historyFile(@PathVariable String id,
+    public ResponseEntity<String> historyFile(@PathVariable String launchId,
                                               @PathVariable String filename,
                                               @RequestParam(defaultValue = "false") boolean download) throws IOException {
-        projectRepo.findById(id)
-                .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + id));
-        // Whitelist: filename must match expected pattern and start with the project id.
+        launchRepo.findById(launchId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Launch not found: " + launchId));
+        // Whitelist: filename must match expected pattern and start with the launch id.
         if (filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
             return ResponseEntity.badRequest().body("Invalid filename");
         }
-        if (!filename.startsWith(id + "-") || !filename.endsWith(".log")) {
-            return ResponseEntity.badRequest().body("Filename does not belong to this project");
+        if (!filename.startsWith(launchId + "-") || !filename.endsWith(".log")) {
+            return ResponseEntity.badRequest().body("Filename does not belong to this launch");
         }
         Path file = Paths.get(logsDir).resolve(filename).normalize();
         if (!file.startsWith(Paths.get(logsDir).toAbsolutePath().normalize())

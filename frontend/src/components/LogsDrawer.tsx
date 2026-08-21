@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ProjectDto } from '../types'
+import type { LaunchDto } from '../types'
 import { logsApi, type LogFileEntry } from '../api'
 
 interface Props {
-  project: ProjectDto
+  launch: LaunchDto
+  projectName: string
   onClose: () => void
 }
 
@@ -15,7 +16,7 @@ function formatSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-export function LogsDrawer({ project, onClose }: Props) {
+export function LogsDrawer({ launch, projectName, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('live')
   const [lines, setLines] = useState<string[]>([])
   const [paused, setPaused] = useState(false)
@@ -32,7 +33,7 @@ export function LogsDrawer({ project, onClose }: Props) {
   useEffect(() => {
     if (tab !== 'live') return
     setLines([])
-    const es = new EventSource(`/api/projects/${project.id}/logs/stream`)
+    const es = new EventSource(`/api/launches/${launch.id}/logs/stream`)
     es.addEventListener('log', (ev: MessageEvent) => {
       setLines(prev => {
         const next = prev.length > 5000 ? prev.slice(prev.length - 5000) : prev.slice()
@@ -42,23 +43,23 @@ export function LogsDrawer({ project, onClose }: Props) {
     })
     es.onerror = () => { /* server closed or no live process */ }
     return () => es.close()
-  }, [project.id, tab])
+  }, [launch.id, tab])
 
   // Load history file list when entering history tab.
   useEffect(() => {
     if (tab !== 'history') return
-    logsApi.history(project.id).then(setHistory).catch(() => setHistory([]))
-  }, [project.id, tab])
+    logsApi.history(launch.id).then(setHistory).catch(() => setHistory([]))
+  }, [launch.id, tab])
 
   // Load selected file content.
   useEffect(() => {
     if (tab !== 'history' || !selectedFile) { setHistoryContent(''); return }
     setHistoryLoading(true)
-    logsApi.historyContent(project.id, selectedFile)
+    logsApi.historyContent(launch.id, selectedFile)
       .then(text => setHistoryContent(text))
       .catch(e => setHistoryContent(`Failed to load: ${e}`))
       .finally(() => setHistoryLoading(false))
-  }, [project.id, selectedFile, tab])
+  }, [launch.id, selectedFile, tab])
 
   useEffect(() => {
     if (tab === 'live' && !pausedRef.current && paneRef.current) {
@@ -76,7 +77,7 @@ export function LogsDrawer({ project, onClose }: Props) {
       <div className="drawer-backdrop" onClick={onClose} />
       <div className="drawer">
         <div className="drawer-header">
-          <h3>Logs — {project.name} {project.pid ? `(pid ${project.pid})` : ''}</h3>
+          <h3>Logs — {projectName} / {launch.name} {launch.pid ? `(pid ${launch.pid})` : ''}</h3>
           <div className="actions">
             {tab === 'live' && (
               <>
@@ -85,7 +86,7 @@ export function LogsDrawer({ project, onClose }: Props) {
               </>
             )}
             {tab === 'history' && selectedFile && (
-              <a className="btn-link" href={logsApi.historyDownloadUrl(project.id, selectedFile)}>Download</a>
+              <a className="btn-link" href={logsApi.historyDownloadUrl(launch.id, selectedFile)}>Download</a>
             )}
             <button onClick={copyAll}>Copy</button>
             <button onClick={onClose}>Close</button>

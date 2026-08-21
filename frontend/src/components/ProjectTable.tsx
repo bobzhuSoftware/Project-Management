@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
-import type { GitStatusDto, ProjectDto } from '../types'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import type { GitStatusDto, LaunchDto, ProjectDto, ProjectStatus } from '../types'
 
 interface Props {
   projects: ProjectDto[]
   busyId: string | null
   gitStatus: Record<string, GitStatusDto | undefined>
   gitLoading: Record<string, boolean>
-  onStart: (p: ProjectDto) => void
-  onStop: (p: ProjectDto) => void
+  onStart: (l: LaunchDto) => void
+  onStop: (l: LaunchDto) => void
   onClean: (p: ProjectDto) => void
   onEdit: (p: ProjectDto) => void
   onDelete: (p: ProjectDto) => void
-  onLogs: (p: ProjectDto) => void
+  onLogs: (l: LaunchDto, projectName: string) => void
   onSync: (p: ProjectDto) => void
   onShowPull: (p: ProjectDto) => void
   onShowChanges: (p: ProjectDto) => void
@@ -34,7 +34,7 @@ function uptime(startedAt?: string | null): string {
 
 interface PortItem { port: number; registered: boolean }
 
-function renderPorts(p: ProjectDto, running: boolean, external: boolean): JSX.Element | string {
+function renderPorts(p: LaunchDto, running: boolean, external: boolean): JSX.Element | string {
   const registered = new Set(p.ports ?? [])
   const detected = new Set((p.detectedPorts ?? []).filter(x => typeof x === 'number'))
   const items: PortItem[] = []
@@ -51,7 +51,7 @@ function renderPorts(p: ProjectDto, running: boolean, external: boolean): JSX.El
           {clickable
             ? <a className="port-link" href={`http://localhost:${it.port}`} target="_blank" rel="noreferrer">{it.port}</a>
             : it.port}
-          {!it.registered && <span className="port-auto" title="自动探测到的监听端口（未在项目配置里登记）"> (auto)</span>}
+          {!it.registered && <span className="port-auto" title="Auto-detected listening port (not registered in project config)"> (auto)</span>}
         </span>
       ))}
     </span>
@@ -161,11 +161,27 @@ function renderGit(
   )
 }
 
+function aggregateStatus(p: ProjectDto): ProjectStatus {
+  const s = (p.launches ?? []).map(l => l.status)
+  if (s.includes('RUNNING')) return 'RUNNING'
+  if (s.includes('ATTACHED')) return 'ATTACHED'
+  if (s.includes('EXTERNAL')) return 'EXTERNAL'
+  if (s.includes('ERROR')) return 'ERROR'
+  return 'STOPPED'
+}
+
 export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onClean, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [menuFor, setMenuFor] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  const toggle = (id: string) => setCollapsed(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
 
   const openMenu = (e: React.MouseEvent, id: string) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -219,53 +235,88 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
       </thead>
       <tbody>
         {projects.map((p, idx) => {
-          const running = p.status === 'RUNNING' || p.status === 'ATTACHED'
-          const external = p.status === 'EXTERNAL'
-          const stoppable = running || external
-          const busy = busyId === p.id
+          const launches = p.launches ?? []
+          const agg = aggregateStatus(p)
+          const projBusy = busyId === p.id
+          const isOpen = !collapsed.has(p.id)
+          // Single-launch projects render as one compact row (no tree, no child).
+          const single = launches.length === 1
+          const only = single ? launches[0] : undefined
+          const onlyRunning = !!only && (only.status === 'RUNNING' || only.status === 'ATTACHED')
+          const onlyExternal = !!only && only.status === 'EXTERNAL'
+          const onlyStoppable = onlyRunning || onlyExternal
+          const onlyBusy = !!only && busyId === only.id
           return (
+            <Fragment key={p.id}>
             <tr
-              key={p.id}
               draggable
               onDragStart={() => handleDragStart(idx)}
               onDragEnter={() => handleDragEnter(idx)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              className={dragIdx === idx ? 'dragging' : undefined}
+              className={`project-row${dragIdx === idx ? ' dragging' : ''}`}
             >
-              <td className="drag-handle" title="拖动排序">⠿</td>
+              <td className="expand-cell">
+                <div className="expand-cell-inner">
+                  {!single && (
+                    <button
+                      className="expand-btn"
+                      title={isOpen ? 'Collapse launches' : 'Expand launches'}
+                      onClick={() => toggle(p.id)}
+                    >
+                      {isOpen ? '▾' : '▸'}
+                    </button>
+                  )}
+                  <span className="drag-handle" title="Drag to reorder">⠿</span>
+                </div>
+              </td>
               <td className="name-cell">
                 <div className="name-row">
                   <span className="name-text">{p.name}</span>
                   <button
                     className="open-folder-btn"
-                    title={`打开目录：${p.rootDirectory}`}
+                    title={`Open folder: ${p.rootDirectory}`}
                     onClick={() => onOpenFolder(p)}
                   >
                     📂
                   </button>
+                  {!single && <span className="launch-count" title="Number of launches">{launches.length} launches</span>}
                 </div>
                 {p.description && <div className="muted name-desc">{p.description}</div>}
               </td>
-              <td><span className={`badge ${p.status}`}>{p.status}</span></td>
-              <td>
-                {renderPorts(p, running, external)}
-              </td>
-              <td>{p.pid ?? '-'}</td>
-              <td>{uptime(p.startedAt)}</td>
-              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], busy, { onSync, onShowPull, onShowChanges, onGitRefresh })}</td>
+              {single && only ? (
+                <>
+                  <td><span className={`badge ${only.status}`}>{only.status}</span></td>
+                  <td>{renderPorts(only, onlyRunning, onlyExternal)}</td>
+                  <td>{only.pid ?? '-'}</td>
+                  <td>{uptime(only.startedAt)}</td>
+                </>
+              ) : (
+                <>
+                  <td><span className={`badge ${agg}`}>{agg}</span></td>
+                  <td className="muted">—</td>
+                  <td className="muted">—</td>
+                  <td className="muted">—</td>
+                </>
+              )}
+              <td>{renderGit(p, gitStatus[p.id], !!gitLoading[p.id], projBusy, { onSync, onShowPull, onShowChanges, onGitRefresh })}</td>
               <td className="actions">
-                {!running && !external && (
-                  <button className="success" disabled={busy} onClick={() => onStart(p)}>Start</button>
+                {single && only && (
+                  <>
+                    {!onlyRunning && !onlyExternal && (
+                      <button className="success" disabled={onlyBusy} onClick={() => onStart(only)}>Start</button>
+                    )}
+                    {onlyStoppable && (
+                      <button className="danger" disabled={onlyBusy} onClick={() => onStop(only)}>Stop</button>
+                    )}
+                    <button disabled={onlyBusy} onClick={() => onLogs(only, p.name)}>Logs</button>
+                  </>
                 )}
-                {stoppable && (
-                  <button className="danger" disabled={busy} onClick={() => onStop(p)}>Stop</button>
-                )}
-                <button disabled={busy} onClick={() => onLogs(p)}>Logs</button>
+                <button disabled={projBusy} onClick={() => onEdit(p)}>Edit</button>
                 <button
                   className={`action-menu-btn${menuFor?.id === p.id ? ' open' : ''}`}
-                  disabled={busy}
-                  title="更多操作"
+                  disabled={projBusy}
+                  title="More actions"
                   onClick={(e) => openMenu(e, p.id)}
                 >
                   ⋯
@@ -273,6 +324,37 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
               </td>
               <td className="row-spacer"></td>
             </tr>
+            {!single && isOpen && launches.map(l => {
+              const running = l.status === 'RUNNING' || l.status === 'ATTACHED'
+              const external = l.status === 'EXTERNAL'
+              const stoppable = running || external
+              const busy = busyId === l.id
+              return (
+                <tr key={l.id} className="launch-row">
+                  <td className="launch-indent"></td>
+                  <td className="launch-name-cell">
+                    <span className="launch-branch">↳</span>
+                    <span className="launch-name">{l.name}</span>
+                  </td>
+                  <td><span className={`badge ${l.status}`}>{l.status}</span></td>
+                  <td>{renderPorts(l, running, external)}</td>
+                  <td>{l.pid ?? '-'}</td>
+                  <td>{uptime(l.startedAt)}</td>
+                  <td></td>
+                  <td className="actions">
+                    {!running && !external && (
+                      <button className="success" disabled={busy} onClick={() => onStart(l)}>Start</button>
+                    )}
+                    {stoppable && (
+                      <button className="danger" disabled={busy} onClick={() => onStop(l)}>Stop</button>
+                    )}
+                    <button disabled={busy} onClick={() => onLogs(l, p.name)}>Logs</button>
+                  </td>
+                  <td className="row-spacer"></td>
+                </tr>
+              )
+            })}
+            </Fragment>
           )
         })}
       </tbody>
@@ -280,19 +362,16 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
     {menuFor && (() => {
       const p = projects.find(x => x.id === menuFor.id)
       if (!p) return null
-      const running = p.status === 'RUNNING' || p.status === 'ATTACHED'
-      const external = p.status === 'EXTERNAL'
-      const stoppable = running || external
+      const anyRunning = (p.launches ?? []).some(l => l.status === 'RUNNING' || l.status === 'ATTACHED')
       const run = (fn: () => void) => { closeMenu(); fn() }
       return (
         <>
           <div className="action-menu-backdrop" onClick={closeMenu} />
           <div className="action-menu" style={{ top: menuFor.y + 4, left: menuFor.x - 150 }}>
-            <button onClick={() => run(() => onEdit(p))}>Edit</button>
             {p.cleanCommand && (
               <button
-                disabled={stoppable}
-                title={stoppable ? '请先停止项目再清理' : '运行 clean 命令清理构建产物'}
+                disabled={anyRunning}
+                title={anyRunning ? 'Stop all launches before cleaning' : 'Run the clean command to remove build artifacts'}
                 onClick={() => run(() => onClean(p))}
               >
                 Clean
@@ -300,7 +379,7 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
             )}
             <button
               className="danger-text"
-              disabled={running}
+              disabled={anyRunning}
               onClick={() => run(() => onDelete(p))}
             >
               Delete

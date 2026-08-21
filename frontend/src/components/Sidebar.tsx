@@ -68,7 +68,7 @@ export function Sidebar(props: Props) {
           onCollapse, onExpandPinned, onOpenFloating, onCloseFloating, onOpenSettings, onOpenPushControl } = props
 
   const isRail = mode === 'rail'
-  const running = projects.filter(p => p.status === 'RUNNING' || p.status === 'ATTACHED').length
+  const running = projects.filter(p => (p.launches ?? []).some(l => l.status === 'RUNNING' || l.status === 'ATTACHED')).length
 
   // Persistent element
   const persistent = (

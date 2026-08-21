@@ -3,16 +3,22 @@ import type { AppSettings, GitDiffDto, GitFileChange, GitStatusDto, GitSyncResul
 
 const api = axios.create({ baseURL: '/api', timeout: 30000 })
 
+export interface LaunchPayload {
+  id?: string
+  name: string
+  startCommand: string
+  stopCommand?: string
+  ports: number[]
+}
+
 export interface ProjectPayload {
   name: string
   rootDirectory: string
-  startCommand: string
-  stopCommand?: string
   cleanCommand?: string
-  ports: number[]
   description?: string
   category: ProjectCategory
   pushEnabled?: boolean
+  launches: LaunchPayload[]
 }
 
 export const projectsApi = {
@@ -20,13 +26,16 @@ export const projectsApi = {
   create: (p: ProjectPayload) => api.post<ProjectDto>('/projects', p).then(r => r.data),
   update: (id: string, p: ProjectPayload) => api.put<ProjectDto>(`/projects/${id}`, p).then(r => r.data),
   remove: (id: string) => api.delete(`/projects/${id}`),
-  start: (id: string) => api.post<ProjectDto>(`/projects/${id}/start`).then(r => r.data),
-  stop: (id: string) => api.post<ProjectDto>(`/projects/${id}/stop`).then(r => r.data),
   clean: (id: string) => api.post<string>(`/projects/${id}/clean`).then(r => r.data),
   reorder: (orderedIds: string[]) => api.put('/projects/reorder', orderedIds),
   openFolder: (id: string) => api.post(`/projects/${id}/open-folder`),
   setPushEnabled: (id: string, enabled: boolean) =>
     api.put<ProjectDto>(`/projects/${id}/push-enabled`, { enabled }).then(r => r.data),
+}
+
+export const launchesApi = {
+  start: (launchId: string) => api.post<ProjectDto>(`/launches/${launchId}/start`).then(r => r.data),
+  stop: (launchId: string) => api.post<ProjectDto>(`/launches/${launchId}/stop`).then(r => r.data),
 }
 
 export interface LogFileEntry {
@@ -56,13 +65,13 @@ export const settingsApi = {
 }
 
 export const logsApi = {
-  history: (id: string) =>
-    api.get<LogFileEntry[]>(`/projects/${id}/logs/history`).then(r => r.data),
-  historyContent: (id: string, filename: string) =>
-    api.get<string>(`/projects/${id}/logs/history/${encodeURIComponent(filename)}`,
+  history: (launchId: string) =>
+    api.get<LogFileEntry[]>(`/launches/${launchId}/logs/history`).then(r => r.data),
+  historyContent: (launchId: string, filename: string) =>
+    api.get<string>(`/launches/${launchId}/logs/history/${encodeURIComponent(filename)}`,
       { responseType: 'text', transformResponse: x => x }).then(r => r.data),
-  historyDownloadUrl: (id: string, filename: string) =>
-    `/api/projects/${id}/logs/history/${encodeURIComponent(filename)}?download=true`,
+  historyDownloadUrl: (launchId: string, filename: string) =>
+    `/api/launches/${launchId}/logs/history/${encodeURIComponent(filename)}?download=true`,
 }
 
 export function extractError(err: unknown): string {

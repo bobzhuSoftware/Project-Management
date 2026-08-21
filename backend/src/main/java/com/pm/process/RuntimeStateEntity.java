@@ -25,7 +25,7 @@ public class RuntimeStateEntity {
 
     @Id
     @Column(name = "project_id", length = 36, nullable = false)
-    private String projectId;
+    private String launchId;
 
     @Column(nullable = false)
     private long pid;

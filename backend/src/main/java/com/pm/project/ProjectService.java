@@ -2,6 +2,9 @@ package com.pm.project;
 
 import com.pm.process.ProcessSupervisor;
 import com.pm.git.GitService;
+import com.pm.process.RuntimeStateRepository;
+import com.pm.project.dto.LaunchRequest;
+import com.pm.project.dto.LaunchResponse;
 import com.pm.project.dto.ProjectRequest;
 import com.pm.project.dto.ProjectResponse;
 import lombok.RequiredArgsConstructor;
@@ -12,14 +15,21 @@ import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class ProjectService {
 
     private final ProjectRepository repo;
+    private final LaunchRepository launchRepo;
+    private final RuntimeStateRepository runtimeRepo;
     private final ProcessSupervisor supervisor;
     private final GitService gitService;
 
@@ -39,6 +49,7 @@ public class ProjectService {
         repo.findByName(req.name).ifPresent(p -> {
             throw new IllegalArgumentException("Project name already exists: " + req.name);
         });
+        requireLaunches(req);
         Instant now = Instant.now();
         Project p = Project.newId();
         applyRequest(p, req);
@@ -46,6 +57,7 @@ public class ProjectService {
         p.setCreatedAt(now);
         p.setUpdatedAt(now);
         Project saved = repo.save(p);
+        reconcileLaunches(saved.getId(), req.launches);
         gitService.applyPushHook(saved);
         return toResponse(saved);
     }
@@ -58,9 +70,11 @@ public class ProjectService {
                 throw new IllegalArgumentException("Project name already exists: " + req.name);
             }
         });
+        requireLaunches(req);
         applyRequest(p, req);
         p.setUpdatedAt(Instant.now());
         Project saved = repo.save(p);
+        reconcileLaunches(saved.getId(), req.launches);
         gitService.applyPushHook(saved);
         return toResponse(saved);
     }
@@ -68,30 +82,26 @@ public class ProjectService {
     @Transactional
     public void delete(String id) {
         Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
-        ProjectStatus status = supervisor.statusOf(p);
-        if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
-            throw new IllegalStateException("Stop the project before deleting it.");
+        for (Launch l : launchRepo.findByProjectIdOrderBySortOrderAsc(id)) {
+            ProjectStatus status = supervisor.statusOf(l.getId());
+            if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
+                throw new IllegalStateException("Stop all launches before deleting the project.");
+            }
+            runtimeRepo.findById(l.getId()).ifPresent(runtimeRepo::delete);
         }
+        launchRepo.deleteByProjectId(id);
         repo.delete(p);
-    }
-
-    @Transactional
-    public ProjectResponse start(String id) {
-        Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
-        supervisor.start(p);
-        return toResponse(p);
-    }
-
-    @Transactional
-    public ProjectResponse stop(String id) {
-        Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
-        supervisor.stop(p);
-        return toResponse(p);
     }
 
     @Transactional(readOnly = true)
     public String clean(String id) {
         Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
+        for (Launch l : launchRepo.findByProjectIdOrderBySortOrderAsc(id)) {
+            ProjectStatus status = supervisor.statusOf(l.getId());
+            if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
+                throw new IllegalStateException("Stop all launches before cleaning the project.");
+            }
+        }
         return supervisor.clean(p);
     }
 
@@ -142,28 +152,76 @@ public class ProjectService {
         }
     }
 
+    private void requireLaunches(ProjectRequest req) {
+        if (req.launches == null || req.launches.isEmpty()) {
+            throw new IllegalArgumentException("A project needs at least one launch (startup script).");
+        }
+    }
+
     private void applyRequest(Project p, ProjectRequest req) {
         p.setName(req.name.trim());
         p.setRootDirectory(req.rootDirectory.trim());
-        p.setStartCommand(req.startCommand.trim());
-        p.setStopCommand(req.stopCommand != null ? req.stopCommand.trim() : null);
         p.setCleanCommand(req.cleanCommand != null ? req.cleanCommand.trim() : null);
-        p.setPorts(req.ports != null ? new ArrayList<>(req.ports) : new ArrayList<>());
         p.setDescription(req.description);
         p.setCategory(req.category != null ? req.category : ProjectCategory.APPLICATION);
         p.setPushEnabled(req.pushEnabled == null || req.pushEnabled);
     }
 
+    /** Creates/updates/removes launches so the persisted set matches the request. */
+    private void reconcileLaunches(String projectId, List<LaunchRequest> requested) {
+        Map<String, Launch> existing = launchRepo.findByProjectIdOrderBySortOrderAsc(projectId).stream()
+                .collect(Collectors.toMap(Launch::getId, Function.identity()));
+        Set<String> keep = new HashSet<>();
+        Instant now = Instant.now();
+
+        for (int i = 0; i < requested.size(); i++) {
+            LaunchRequest lr = requested.get(i);
+            Launch launch;
+            if (lr.id != null && !lr.id.isBlank() && existing.containsKey(lr.id)) {
+                launch = existing.get(lr.id);
+            } else {
+                launch = Launch.newId();
+                launch.setProjectId(projectId);
+                launch.setCreatedAt(now);
+            }
+            launch.setName(lr.name.trim());
+            launch.setStartCommand(lr.startCommand.trim());
+            launch.setStopCommand(lr.stopCommand != null && !lr.stopCommand.isBlank() ? lr.stopCommand.trim() : null);
+            launch.setPorts(lr.ports != null ? new ArrayList<>(lr.ports) : new ArrayList<>());
+            launch.setSortOrder(i);
+            launch.setUpdatedAt(now);
+            launchRepo.save(launch);
+            keep.add(launch.getId());
+        }
+
+        for (Launch old : existing.values()) {
+            if (keep.contains(old.getId())) continue;
+            ProjectStatus status = supervisor.statusOf(old.getId());
+            if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
+                throw new IllegalStateException("Stop launch '" + old.getName() + "' before removing it.");
+            }
+            runtimeRepo.findById(old.getId()).ifPresent(runtimeRepo::delete);
+            launchRepo.delete(old);
+        }
+    }
+
     private ProjectResponse toResponse(Project p) {
-        ProjectStatus status = supervisor.statusOf(p);
+        List<LaunchResponse> launches = launchRepo.findByProjectIdOrderBySortOrderAsc(p.getId()).stream()
+                .map(this::toLaunchResponse)
+                .toList();
+        return ProjectResponse.from(p, launches);
+    }
+
+    private LaunchResponse toLaunchResponse(Launch l) {
+        ProjectStatus status = supervisor.statusOf(l.getId());
         List<Integer> detected = (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED)
-                ? supervisor.detectListeningPorts(p)
+                ? supervisor.detectListeningPorts(l.getId())
                 : List.of();
-        return ProjectResponse.from(
-                p,
+        return LaunchResponse.from(
+                l,
                 status,
-                supervisor.getLive(p.getId()).orElse(null),
-                supervisor.getRuntimeState(p.getId()).orElse(null),
+                supervisor.getLive(l.getId()).orElse(null),
+                supervisor.getRuntimeState(l.getId()).orElse(null),
                 detected);
     }
 

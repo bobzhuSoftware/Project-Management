@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { extractError, gitApi, projectsApi } from './api'
-import type { GitStatusDto, ProjectDto } from './types'
+import { extractError, gitApi, launchesApi, projectsApi } from './api'
+import type { GitStatusDto, LaunchDto, ProjectDto } from './types'
 import { ProjectTable } from './components/ProjectTable'
 import { ProjectFormModal } from './components/ProjectFormModal'
 import { LogsDrawer } from './components/LogsDrawer'
@@ -29,7 +29,7 @@ export function App() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [editing, setEditing] = useState<ProjectDto | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [logsFor, setLogsFor] = useState<ProjectDto | null>(null)
+  const [logsFor, setLogsFor] = useState<{ launch: LaunchDto; projectName: string } | null>(null)
   const [gitModal, setGitModal] = useState<{ project: ProjectDto; mode: 'sync' | 'changes' | 'pull' } | null>(null)
   const [gitStatus, setGitStatus] = useState<Record<string, GitStatusDto | undefined>>({})
   const [gitLoading, setGitLoading] = useState<Record<string, boolean>>({})
@@ -94,16 +94,16 @@ export function App() {
     refreshAllGit(ids, true)
   }, [projectIdsKey, refreshAllGit])
 
-  const handleStart = async (p: ProjectDto) => {
-    setBusyId(p.id)
-    try { await projectsApi.start(p.id); await refresh(); fetchGitStatus(p.id, true) }
-    catch (e) { showError(`启动失败：${p.name}`, e) }
+  const handleStart = async (launch: LaunchDto) => {
+    setBusyId(launch.id)
+    try { await launchesApi.start(launch.id); await refresh(); fetchGitStatus(launch.projectId, true) }
+    catch (e) { showError(`Failed to start: ${launch.name}`, e) }
     finally { setBusyId(null) }
   }
-  const handleStop = async (p: ProjectDto) => {
-    setBusyId(p.id)
-    try { await projectsApi.stop(p.id); await refresh(); fetchGitStatus(p.id, true) }
-    catch (e) { showError(`停止失败：${p.name}`, e) }
+  const handleStop = async (launch: LaunchDto) => {
+    setBusyId(launch.id)
+    try { await launchesApi.stop(launch.id); await refresh(); fetchGitStatus(launch.projectId, true) }
+    catch (e) { showError(`Failed to stop: ${launch.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleClean = async (p: ProjectDto) => {
@@ -111,16 +111,16 @@ export function App() {
     try {
       const output = await projectsApi.clean(p.id)
       await refresh(); fetchGitStatus(p.id, true)
-      setDialog({ variant: 'success', title: `Clean 完成：${p.name}`, message: '构建产物已清理。', detail: output || '(no output)' })
+      setDialog({ variant: 'success', title: `Clean complete: ${p.name}`, message: 'Build artifacts cleaned.', detail: output || '(no output)' })
     }
-    catch (e) { showError(`Clean 失败：${p.name}`, e) }
+    catch (e) { showError(`Clean failed: ${p.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleDelete = async (p: ProjectDto) => {
     if (!confirm(`Delete "${p.name}"?`)) return
     setBusyId(p.id)
     try { await projectsApi.remove(p.id); await refresh() }
-    catch (e) { showError(`删除失败：${p.name}`, e) }
+    catch (e) { showError(`Failed to delete: ${p.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleEdit = (p: ProjectDto) => { setEditing(p); setShowForm(true) }
@@ -135,13 +135,13 @@ export function App() {
       await projectsApi.reorder(orderedIds)
       await refresh()
     } catch (e) {
-      showError('排序失败', e)
+      showError('Failed to reorder', e)
     }
   }
 
   const handleOpenFolder = async (p: ProjectDto) => {
     try { await projectsApi.openFolder(p.id) }
-    catch (e) { showError(`打开文件夹失败：${p.name}`, e) }
+    catch (e) { showError(`Failed to open folder: ${p.name}`, e) }
   }
 
   // Keep URL hash in sync with active category so refresh preserves the view.
@@ -204,7 +204,7 @@ export function App() {
               onClean={handleClean}
               onEdit={handleEdit}
               onDelete={handleDelete}
-              onLogs={setLogsFor}
+              onLogs={(launch, projectName) => setLogsFor({ launch, projectName })}
               onSync={(p) => setGitModal({ project: p, mode: 'sync' })}
               onShowPull={(p) => setGitModal({ project: p, mode: 'pull' })}
               onShowChanges={(p) => setGitModal({ project: p, mode: 'changes' })}
@@ -223,7 +223,7 @@ export function App() {
         />
       )}
       {logsFor && (
-        <LogsDrawer project={logsFor} onClose={() => setLogsFor(null)} />
+        <LogsDrawer launch={logsFor.launch} projectName={logsFor.projectName} onClose={() => setLogsFor(null)} />
       )}
       {gitModal && (
         <GitSyncModal
