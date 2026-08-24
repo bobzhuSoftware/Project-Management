@@ -24,6 +24,32 @@ To stop everything (backend, frontend, and anything still bound on 8090/5180):
 powershell -ExecutionPolicy Bypass -File stop-dev.ps1
 ```
 
+## Tray mode (app-like quick launch)
+
+An alternative to the dev flow for **daily use** (not development). It runs a single
+Spring Boot process that serves both the API and the pre-built frontend on one port,
+and lives in the system tray — no Vite, faster to open.
+
+```cmd
+start-tray.cmd
+```
+
+- First run builds the frontend and packages a fat jar automatically; later runs just launch the jar.
+- A tray icon appears near the clock. Double-click it (or right-click → **打开界面**) to open the UI; right-click → **退出** to stop.
+- Runs on port 8090 with the same H2 database and logs as the dev flow.
+
+Rebuild after changing code:
+
+```cmd
+build-tray.cmd            REM rebuild frontend + jar
+start-tray.cmd -Rebuild   REM rebuild then launch
+```
+
+> Tray mode defaults to port 8090, but auto-shifts to the next free port if it's busy
+> (same behaviour as `start-dev.ps1`), so it can run alongside a running `start-dev.cmd`.
+> Both modes share the same H2 database (`AUTO_SERVER` mode), so they see the same
+> projects. Development still uses `start-dev.cmd` (two ports + hot reload) as before.
+
 ## Adding a project
 
 For each project register:

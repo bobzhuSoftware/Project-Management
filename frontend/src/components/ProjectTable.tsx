@@ -176,6 +176,24 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [menuFor, setMenuFor] = useState<{ id: string; x: number; y: number } | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const seenProjects = useRef<Set<string>>(new Set())
+
+  // Multi-launch projects start collapsed by default; only apply once per project id.
+  useEffect(() => {
+    const toCollapse: string[] = []
+    for (const p of projects) {
+      if (seenProjects.current.has(p.id)) continue
+      seenProjects.current.add(p.id)
+      if ((p.launches ?? []).length > 1) toCollapse.push(p.id)
+    }
+    if (toCollapse.length) {
+      setCollapsed(prev => {
+        const next = new Set(prev)
+        for (const id of toCollapse) next.add(id)
+        return next
+      })
+    }
+  }, [projects])
 
   const toggle = (id: string) => setCollapsed(prev => {
     const next = new Set(prev)
