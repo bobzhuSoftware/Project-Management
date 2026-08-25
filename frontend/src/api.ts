@@ -11,14 +11,22 @@ export interface LaunchPayload {
   ports: number[]
 }
 
+export interface ProjectCommandPayload {
+  id?: string
+  name: string
+  command: string
+  requireStopped?: boolean
+  timeoutSeconds?: number | null
+}
+
 export interface ProjectPayload {
   name: string
   rootDirectory: string
-  cleanCommand?: string
   description?: string
   category: ProjectCategory
   pushEnabled?: boolean
   launches: LaunchPayload[]
+  commands: ProjectCommandPayload[]
 }
 
 export const projectsApi = {
@@ -26,7 +34,8 @@ export const projectsApi = {
   create: (p: ProjectPayload) => api.post<ProjectDto>('/projects', p).then(r => r.data),
   update: (id: string, p: ProjectPayload) => api.put<ProjectDto>(`/projects/${id}`, p).then(r => r.data),
   remove: (id: string) => api.delete(`/projects/${id}`),
-  clean: (id: string) => api.post<string>(`/projects/${id}/clean`).then(r => r.data),
+  runCommand: (id: string, commandId: string) =>
+    api.post<string>(`/projects/${id}/commands/${commandId}/run`).then(r => r.data),
   reorder: (orderedIds: string[]) => api.put('/projects/reorder', orderedIds),
   openFolder: (id: string) => api.post(`/projects/${id}/open-folder`),
   setPushEnabled: (id: string, enabled: boolean) =>

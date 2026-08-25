@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { extractError, gitApi, launchesApi, projectsApi } from './api'
-import type { GitStatusDto, LaunchDto, ProjectDto } from './types'
+import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto } from './types'
 import { ProjectTable } from './components/ProjectTable'
 import { ProjectFormModal } from './components/ProjectFormModal'
 import { LogsDrawer } from './components/LogsDrawer'
@@ -106,14 +106,14 @@ export function App() {
     catch (e) { showError(`Failed to stop: ${launch.name}`, e) }
     finally { setBusyId(null) }
   }
-  const handleClean = async (p: ProjectDto) => {
+  const handleRunCommand = async (p: ProjectDto, command: ProjectCommandDto) => {
     setBusyId(p.id)
     try {
-      const output = await projectsApi.clean(p.id)
+      const output = await projectsApi.runCommand(p.id, command.id)
       await refresh(); fetchGitStatus(p.id, true)
-      setDialog({ variant: 'success', title: `Clean complete: ${p.name}`, message: 'Build artifacts cleaned.', detail: output || '(no output)' })
+      setDialog({ variant: 'success', title: `${command.name} complete: ${p.name}`, message: `Command "${command.name}" finished.`, detail: output || '(no output)' })
     }
-    catch (e) { showError(`Clean failed: ${p.name}`, e) }
+    catch (e) { showError(`${command.name} failed: ${p.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleDelete = async (p: ProjectDto) => {
@@ -201,7 +201,7 @@ export function App() {
               gitLoading={gitLoading}
               onStart={handleStart}
               onStop={handleStop}
-              onClean={handleClean}
+              onRunCommand={handleRunCommand}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onLogs={(launch, projectName) => setLogsFor({ launch, projectName })}

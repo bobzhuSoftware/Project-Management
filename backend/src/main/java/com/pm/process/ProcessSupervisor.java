@@ -2,6 +2,7 @@ package com.pm.process;
 
 import com.pm.project.Launch;
 import com.pm.project.Project;
+import com.pm.project.ProjectCommand;
 import com.pm.project.ProjectRepository;
 import com.pm.project.ProjectStatus;
 import com.pm.settings.AppSettings;
@@ -200,13 +201,13 @@ public class ProcessSupervisor {
     }
 
     /**
-     * Run the project's clean command synchronously. The caller must ensure no launch of this
-     * project is running so build artifacts (target/, node_modules, ...) are not locked. Returns
-     * the combined stdout/stderr.
+     * Run one of the project's maintenance commands synchronously. When the command requires it,
+     * the caller must ensure no launch of this project is running so build artifacts
+     * (target/, node_modules, ...) are not locked. Returns the combined stdout/stderr.
      */
-    public synchronized String clean(Project project) {
-        if (project.getCleanCommand() == null || project.getCleanCommand().isBlank()) {
-            throw new IllegalStateException("No clean command configured for: " + project.getName());
+    public synchronized String runCommand(Project project, ProjectCommand command) {
+        if (command.getCommand() == null || command.getCommand().isBlank()) {
+            throw new IllegalStateException("No command configured for: " + command.getName());
         }
 
         File workDir = new File(project.getRootDirectory());
@@ -214,12 +215,16 @@ public class ProcessSupervisor {
             throw new IllegalArgumentException("Root directory does not exist: " + project.getRootDirectory());
         }
 
+        int timeoutSeconds = command.getTimeoutSeconds() != null && command.getTimeoutSeconds() > 0
+                ? command.getTimeoutSeconds()
+                : 120;
+
         ProcessBuilder pb = new ProcessBuilder(
                 "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
                 "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " +
                 "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                "& cmd.exe /c '" + escapeForPowerShell(project.getCleanCommand()) + "'");
+                "& cmd.exe /c '" + escapeForPowerShell(command.getCommand()) + "'");
         pb.directory(workDir);
         pb.redirectErrorStream(true);
         applyUtf8AndNoColorEnv(pb);
@@ -229,20 +234,23 @@ public class ProcessSupervisor {
         try {
             Process p = pb.start();
             String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            boolean finished = p.waitFor(120, TimeUnit.SECONDS);
+            boolean finished = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 p.destroyForcibly();
-                throw new IllegalStateException("Clean timed out after 120s for: " + project.getName());
+                throw new IllegalStateException(
+                        "Command '" + command.getName() + "' timed out after " + timeoutSeconds + "s for: " + project.getName());
             }
             int exit = p.exitValue();
             if (exit != 0) {
-                throw new IllegalStateException("Clean failed (exit " + exit + "):\n" + output);
+                throw new IllegalStateException(
+                        "Command '" + command.getName() + "' failed (exit " + exit + "):\n" + output);
             }
-            log.info("Cleaned {} (cmd={})", project.getName(), project.getCleanCommand());
+            log.info("Ran command '{}' on {} (cmd={})", command.getName(), project.getName(), command.getCommand());
             return output;
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new RuntimeException("Clean failed for " + project.getName() + ": " + e.getMessage(), e);
+            throw new RuntimeException(
+                    "Command '" + command.getName() + "' failed for " + project.getName() + ": " + e.getMessage(), e);
         }
     }
 

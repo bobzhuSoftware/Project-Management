@@ -14,9 +14,6 @@ public class ProjectRequest {
     @NotBlank
     public String rootDirectory;
 
-    /** Clean command lives at the repository level (shared across all launches). */
-    public String cleanCommand;
-
     public String description;
     public ProjectCategory category;
     public Boolean pushEnabled;
@@ -24,4 +21,8 @@ public class ProjectRequest {
     /** One or more runnable configurations (startup scripts) for this project. */
     @Valid
     public List<LaunchRequest> launches = new ArrayList<>();
+
+    /** User-defined maintenance commands (clean, build frontend, build backend, ...). */
+    @Valid
+    public List<ProjectCommandRequest> commands = new ArrayList<>();
 }

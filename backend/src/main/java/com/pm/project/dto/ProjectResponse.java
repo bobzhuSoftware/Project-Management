@@ -10,7 +10,6 @@ public class ProjectResponse {
     public String id;
     public String name;
     public String rootDirectory;
-    public String cleanCommand;
     public String description;
     public ProjectCategory category;
     public Instant createdAt;
@@ -22,12 +21,14 @@ public class ProjectResponse {
     /** Runnable configurations, each with its own runtime state. */
     public List<LaunchResponse> launches;
 
-    public static ProjectResponse from(Project p, List<LaunchResponse> launches) {
+    /** User-defined maintenance commands (clean, build frontend, ...). */
+    public List<ProjectCommandResponse> commands;
+
+    public static ProjectResponse from(Project p, List<LaunchResponse> launches, List<ProjectCommandResponse> commands) {
         ProjectResponse r = new ProjectResponse();
         r.id = p.getId();
         r.name = p.getName();
         r.rootDirectory = p.getRootDirectory();
-        r.cleanCommand = p.getCleanCommand();
         r.description = p.getDescription();
         r.category = p.getCategory();
         r.sortOrder = p.getSortOrder();
@@ -35,6 +36,7 @@ public class ProjectResponse {
         r.createdAt = p.getCreatedAt();
         r.updatedAt = p.getUpdatedAt();
         r.launches = launches;
+        r.commands = commands;
         return r;
     }
 }

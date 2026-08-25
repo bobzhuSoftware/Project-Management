@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { extractError, projectsApi, type LaunchPayload } from '../api'
+import { extractError, projectsApi, type LaunchPayload, type ProjectCommandPayload } from '../api'
 import type { ProjectCategory, ProjectDto } from '../types'
 
 interface Props {
@@ -22,6 +22,15 @@ interface LaunchForm {
   startCommand: string
   stopCommand: string
   ports: string
+}
+
+interface CommandForm {
+  uid: string
+  id?: string
+  name: string
+  command: string
+  requireStopped: boolean
+  timeoutSeconds: string
 }
 
 const newUid = () =>
@@ -58,10 +67,23 @@ function initLaunches(project: ProjectDto | null): LaunchForm[] {
   return [{ uid: newUid(), name: 'default', startCommand: 'start-dev.cmd', stopCommand: '', ports: '' }]
 }
 
+function initCommands(project: ProjectDto | null): CommandForm[] {
+  if (project && project.commands && project.commands.length > 0) {
+    return project.commands.map(c => ({
+      uid: newUid(),
+      id: c.id,
+      name: c.name,
+      command: c.command,
+      requireStopped: c.requireStopped,
+      timeoutSeconds: c.timeoutSeconds != null ? String(c.timeoutSeconds) : '',
+    }))
+  }
+  return []
+}
+
 export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
   const [name, setName] = useState(project?.name ?? '')
   const [rootDirectory, setRootDirectory] = useState(project?.rootDirectory ?? '')
-  const [cleanCommand, setCleanCommand] = useState(project?.cleanCommand ?? '')
   const [description, setDescription] = useState(project?.description ?? '')
   const [category, setCategory] = useState<ProjectCategory>(
     project?.category ?? defaultCategory ?? 'APPLICATION'
@@ -91,6 +113,27 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
       return next
     })
 
+  const [commands, setCommands] = useState<CommandForm[]>(() => initCommands(project))
+  // New (unsaved) commands start expanded for editing; existing ones start collapsed.
+  const [cmdExpanded, setCmdExpanded] = useState<Set<string>>(
+    () => new Set(commands.filter(c => !c.id).map(c => c.uid))
+  )
+  const updateCommand = (idx: number, patch: Partial<CommandForm>) =>
+    setCommands(cs => cs.map((c, i) => (i === idx ? { ...c, ...patch } : c)))
+  const addCommand = () => {
+    const uid = newUid()
+    setCommands(cs => [...cs, { uid, name: '', command: '', requireStopped: false, timeoutSeconds: '' }])
+    setCmdExpanded(prev => new Set(prev).add(uid))
+  }
+  const removeCommand = (idx: number) =>
+    setCommands(cs => cs.filter((_, i) => i !== idx))
+  const toggleCmdExpand = (uid: string) =>
+    setCmdExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(uid)) next.delete(uid); else next.add(uid)
+      return next
+    })
+
   const save = async () => {
     setError(null); setBusy(true)
     try {
@@ -110,14 +153,35 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
           ports: parsePorts(l.ports),
         }
       })
+      const payloadCommands: ProjectCommandPayload[] = commands.map((c, i) => {
+        const fail = (msg: string) => {
+          setCmdExpanded(prev => new Set(prev).add(c.uid))
+          throw new Error(msg)
+        }
+        if (!c.name.trim()) fail(`Command #${i + 1} is missing a name.`)
+        if (!c.command.trim()) fail(`Command "${c.name || i + 1}" is missing a command.`)
+        let timeoutSeconds: number | undefined
+        if (c.timeoutSeconds.trim()) {
+          const n = Number(c.timeoutSeconds.trim())
+          if (!Number.isInteger(n) || n <= 0) fail(`Command "${c.name || i + 1}" has an invalid timeout (seconds).`)
+          timeoutSeconds = n
+        }
+        return {
+          id: c.id,
+          name: c.name.trim(),
+          command: c.command.trim(),
+          requireStopped: c.requireStopped,
+          timeoutSeconds,
+        }
+      })
       const payload = {
         name: name.trim(),
         rootDirectory: rootDirectory.trim(),
-        cleanCommand: cleanCommand.trim() || undefined,
         description: description.trim() || undefined,
         category,
         pushEnabled,
         launches: payloadLaunches,
+        commands: payloadCommands,
       }
       if (project) await projectsApi.update(project.id, payload)
       else await projectsApi.create(payload)
@@ -149,11 +213,6 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
             <label>Root Directory (absolute Windows path)</label>
             <input value={rootDirectory} onChange={e => setRootDirectory(e.target.value)}
                    placeholder="C:\Users\BOBZHU01\Projects\A Stock Stock Card" />
-          </div>
-          <div className="form-row">
-            <label>Clean Command (optional, shared, run only when stopped)</label>
-            <textarea value={cleanCommand} onChange={e => setCleanCommand(e.target.value)}
-                      placeholder="mvn clean" />
           </div>
           <div className="form-row">
             <label>Description (optional)</label>
@@ -243,6 +302,86 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
                         value={l.ports}
                         onChange={e => updateLaunch(i, { ports: e.target.value })}
                         placeholder="e.g. 5173, 8085, 3306"
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="launches-editor">
+            <div className="launches-editor-head">
+              <div className="launches-editor-title">
+                <span className="launches-editor-label">Commands</span>
+                <span className="launch-count">{commands.length}</span>
+              </div>
+              <button type="button" className="primary" onClick={addCommand}>+ Add Command</button>
+            </div>
+            <div className="launches-editor-hint muted">
+              Custom maintenance commands, e.g. Clean / Build Frontend / Build Backend. They appear in the project's ⋯ menu.
+            </div>
+            {commands.map((c, i) => {
+              const open = cmdExpanded.has(c.uid)
+              return (
+                <div className={`launch-editor-card${open ? ' open' : ''}`} key={c.uid}>
+                  <div className="launch-card-head" onClick={() => toggleCmdExpand(c.uid)}>
+                    <span className="launch-index">{i + 1}</span>
+                    {open ? (
+                      <input
+                        className="launch-name-input"
+                        value={c.name}
+                        onChange={e => updateCommand(i, { name: e.target.value })}
+                        onClick={e => e.stopPropagation()}
+                        placeholder="Command name (e.g. Clean / Build Frontend)"
+                      />
+                    ) : (
+                      <div className="launch-card-summary">
+                        <span className="launch-summary-name">{c.name || 'Untitled command'}</span>
+                        <span className="launch-summary-cmd">{c.command || 'no command'}</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="launch-toggle-btn"
+                      title={open ? 'Collapse' : 'Edit'}
+                      onClick={e => { e.stopPropagation(); toggleCmdExpand(c.uid) }}
+                    >
+                      {open ? '▾' : '▸'}
+                    </button>
+                    <button
+                      type="button"
+                      className="launch-remove-btn"
+                      title="Remove this command"
+                      onClick={e => { e.stopPropagation(); removeCommand(i) }}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                  {open && (
+                    <div className="launch-card-body">
+                      <label className="launch-field-label">Command</label>
+                      <textarea
+                        className="mono"
+                        value={c.command}
+                        onChange={e => updateCommand(i, { command: e.target.value })}
+                        placeholder="e.g. npm --prefix frontend run build"
+                      />
+                      <label className="checkbox-inline" style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 'normal', marginTop: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={c.requireStopped}
+                          onChange={e => updateCommand(i, { requireStopped: e.target.checked })}
+                          style={{ width: 'auto' }}
+                        />
+                        Require all launches stopped before running (e.g. clean)
+                      </label>
+                      <label className="launch-field-label">Timeout seconds (optional, default 120)</label>
+                      <input
+                        className="mono"
+                        value={c.timeoutSeconds}
+                        onChange={e => updateCommand(i, { timeoutSeconds: e.target.value })}
+                        placeholder="e.g. 300"
                       />
                     </div>
                   )}

@@ -5,6 +5,8 @@ import com.pm.git.GitService;
 import com.pm.process.RuntimeStateRepository;
 import com.pm.project.dto.LaunchRequest;
 import com.pm.project.dto.LaunchResponse;
+import com.pm.project.dto.ProjectCommandRequest;
+import com.pm.project.dto.ProjectCommandResponse;
 import com.pm.project.dto.ProjectRequest;
 import com.pm.project.dto.ProjectResponse;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +31,7 @@ public class ProjectService {
 
     private final ProjectRepository repo;
     private final LaunchRepository launchRepo;
+    private final ProjectCommandRepository commandRepo;
     private final RuntimeStateRepository runtimeRepo;
     private final ProcessSupervisor supervisor;
     private final GitService gitService;
@@ -58,6 +61,7 @@ public class ProjectService {
         p.setUpdatedAt(now);
         Project saved = repo.save(p);
         reconcileLaunches(saved.getId(), req.launches);
+        reconcileCommands(saved.getId(), req.commands);
         gitService.applyPushHook(saved);
         return toResponse(saved);
     }
@@ -75,6 +79,7 @@ public class ProjectService {
         p.setUpdatedAt(Instant.now());
         Project saved = repo.save(p);
         reconcileLaunches(saved.getId(), req.launches);
+        reconcileCommands(saved.getId(), req.commands);
         gitService.applyPushHook(saved);
         return toResponse(saved);
     }
@@ -89,20 +94,27 @@ public class ProjectService {
             }
             runtimeRepo.findById(l.getId()).ifPresent(runtimeRepo::delete);
         }
+        commandRepo.deleteByProjectId(id);
         launchRepo.deleteByProjectId(id);
         repo.delete(p);
     }
 
     @Transactional(readOnly = true)
-    public String clean(String id) {
-        Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
-        for (Launch l : launchRepo.findByProjectIdOrderBySortOrderAsc(id)) {
-            ProjectStatus status = supervisor.statusOf(l.getId());
-            if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
-                throw new IllegalStateException("Stop all launches before cleaning the project.");
+    public String runCommand(String projectId, String commandId) {
+        Project p = repo.findById(projectId)
+                .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
+        ProjectCommand cmd = commandRepo.findById(commandId)
+                .filter(c -> c.getProjectId().equals(projectId))
+                .orElseThrow(() -> new NotFoundException("Command not found: " + commandId));
+        if (cmd.isRequireStopped()) {
+            for (Launch l : launchRepo.findByProjectIdOrderBySortOrderAsc(projectId)) {
+                ProjectStatus status = supervisor.statusOf(l.getId());
+                if (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED) {
+                    throw new IllegalStateException("Stop all launches before running '" + cmd.getName() + "'.");
+                }
             }
         }
-        return supervisor.clean(p);
+        return supervisor.runCommand(p, cmd);
     }
 
     @Transactional
@@ -161,7 +173,6 @@ public class ProjectService {
     private void applyRequest(Project p, ProjectRequest req) {
         p.setName(req.name.trim());
         p.setRootDirectory(req.rootDirectory.trim());
-        p.setCleanCommand(req.cleanCommand != null ? req.cleanCommand.trim() : null);
         p.setDescription(req.description);
         p.setCategory(req.category != null ? req.category : ProjectCategory.APPLICATION);
         p.setPushEnabled(req.pushEnabled == null || req.pushEnabled);
@@ -205,11 +216,46 @@ public class ProjectService {
         }
     }
 
+    /** Creates/updates/removes commands so the persisted set matches the request. */
+    private void reconcileCommands(String projectId, List<ProjectCommandRequest> requested) {
+        List<ProjectCommandRequest> list = requested != null ? requested : List.of();
+        Map<String, ProjectCommand> existing = commandRepo.findByProjectIdOrderBySortOrderAsc(projectId).stream()
+                .collect(Collectors.toMap(ProjectCommand::getId, Function.identity()));
+        Set<String> keep = new HashSet<>();
+
+        for (int i = 0; i < list.size(); i++) {
+            ProjectCommandRequest cr = list.get(i);
+            ProjectCommand cmd;
+            if (cr.id != null && !cr.id.isBlank() && existing.containsKey(cr.id)) {
+                cmd = existing.get(cr.id);
+            } else {
+                cmd = ProjectCommand.newId();
+                cmd.setProjectId(projectId);
+            }
+            cmd.setName(cr.name.trim());
+            cmd.setCommand(cr.command.trim());
+            cmd.setRequireStopped(cr.requireStopped != null && cr.requireStopped);
+            cmd.setTimeoutSeconds(cr.timeoutSeconds != null && cr.timeoutSeconds > 0 ? cr.timeoutSeconds : null);
+            cmd.setSortOrder(i);
+            commandRepo.save(cmd);
+            keep.add(cmd.getId());
+        }
+
+        for (ProjectCommand old : existing.values()) {
+            if (!keep.contains(old.getId())) {
+                commandRepo.delete(old);
+            }
+        }
+    }
+
     private ProjectResponse toResponse(Project p) {
         List<LaunchResponse> launches = launchRepo.findByProjectIdOrderBySortOrderAsc(p.getId()).stream()
                 .map(this::toLaunchResponse)
                 .toList();
-        return ProjectResponse.from(p, launches);
+        List<ProjectCommandResponse> commands = commandRepo.findByProjectIdOrderBySortOrderAsc(p.getId()).stream()
+                .map(ProjectCommandResponse::from)
+                .toList();
+        return ProjectResponse.from(p, launches, commands);
     }
 
     private LaunchResponse toLaunchResponse(Launch l) {

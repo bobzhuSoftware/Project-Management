@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { GitStatusDto, LaunchDto, ProjectDto, ProjectStatus } from '../types'
+import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, ProjectStatus } from '../types'
 
 interface Props {
   projects: ProjectDto[]
@@ -8,7 +8,7 @@ interface Props {
   gitLoading: Record<string, boolean>
   onStart: (l: LaunchDto) => void
   onStop: (l: LaunchDto) => void
-  onClean: (p: ProjectDto) => void
+  onRunCommand: (p: ProjectDto, command: ProjectCommandDto) => void
   onEdit: (p: ProjectDto) => void
   onDelete: (p: ProjectDto) => void
   onLogs: (l: LaunchDto, projectName: string) => void
@@ -170,7 +170,7 @@ function aggregateStatus(p: ProjectDto): ProjectStatus {
   return 'STOPPED'
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onClean, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onRunCommand, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -386,15 +386,18 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
         <>
           <div className="action-menu-backdrop" onClick={closeMenu} />
           <div className="action-menu" style={{ top: menuFor.y + 4, left: menuFor.x - 150 }}>
-            {p.cleanCommand && (
+            {(p.commands ?? []).map(cmd => (
               <button
-                disabled={anyRunning}
-                title={anyRunning ? 'Stop all launches before cleaning' : 'Run the clean command to remove build artifacts'}
-                onClick={() => run(() => onClean(p))}
+                key={cmd.id}
+                disabled={cmd.requireStopped && anyRunning}
+                title={cmd.requireStopped && anyRunning
+                  ? 'Stop all launches before running this command'
+                  : `Run: ${cmd.command}`}
+                onClick={() => run(() => onRunCommand(p, cmd))}
               >
-                Clean
+                {cmd.name}
               </button>
-            )}
+            ))}
             <button
               className="danger-text"
               disabled={anyRunning}

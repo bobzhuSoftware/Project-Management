@@ -49,9 +49,9 @@ public class ProjectController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{id}/clean")
-    public ResponseEntity<String> clean(@PathVariable String id) {
-        return ResponseEntity.ok(service.clean(id));
+    @PostMapping("/{id}/commands/{commandId}/run")
+    public ResponseEntity<String> runCommand(@PathVariable String id, @PathVariable String commandId) {
+        return ResponseEntity.ok(service.runCommand(id, commandId));
     }
 
     @PutMapping("/{id}/push-enabled")

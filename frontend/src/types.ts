@@ -20,7 +20,6 @@ export interface ProjectDto {
   id: string
   name: string
   rootDirectory: string
-  cleanCommand?: string | null
   description?: string | null
   category: ProjectCategory
   sortOrder: number
@@ -28,6 +27,17 @@ export interface ProjectDto {
   createdAt: string
   updatedAt: string
   launches: LaunchDto[]
+  commands: ProjectCommandDto[]
+}
+
+export interface ProjectCommandDto {
+  id: string
+  projectId: string
+  name: string
+  command: string
+  requireStopped: boolean
+  timeoutSeconds?: number | null
+  sortOrder: number
 }
 
 export type GitFileChangeType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'RENAMED' | 'UNTRACKED' | 'CONFLICT'
@@ -89,7 +99,15 @@ export interface LaunchFormValues {
 export interface ProjectFormValues {
   name: string
   rootDirectory: string
-  cleanCommand: string
   description: string
   launches: LaunchFormValues[]
+  commands: ProjectCommandFormValues[]
+}
+
+export interface ProjectCommandFormValues {
+  id?: string
+  name: string
+  command: string
+  requireStopped: boolean
+  timeoutSeconds: string
 }
