@@ -70,23 +70,26 @@ public final class PortUtils {
         String script = "Get-NetTCPConnection -LocalPort " + port +
                 " -State Listen -ErrorAction SilentlyContinue | " +
                 "Select-Object -ExpandProperty OwningProcess -Unique";
+        Process p = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script);
             pb.redirectErrorStream(true);
-            Process p = pb.start();
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), Charset.forName("GBK")))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    line = line.trim();
-                    if (!line.isEmpty()) {
-                        try { result.add(Long.parseLong(line)); } catch (NumberFormatException ignored) {}
-                    }
+            p = pb.start();
+            List<String> lines = readLinesAsync(p);
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                log.warn("listeningPids({}) timed out; killed powershell", port);
+                return Collections.emptyList();
+            }
+            for (String line : lines) {
+                line = line.trim();
+                if (!line.isEmpty()) {
+                    try { result.add(Long.parseLong(line)); } catch (NumberFormatException ignored) {}
                 }
             }
-            p.waitFor(5, TimeUnit.SECONDS);
         } catch (IOException | InterruptedException e) {
+            if (p != null) p.destroyForcibly();
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             return Collections.emptyList();
         }
@@ -149,32 +152,54 @@ public final class PortUtils {
                 "Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | " +
                 "ForEach-Object { '{0} {1}' -f $_.OwningProcess, $_.LocalPort }";
         Map<Long, List<Integer>> result = new HashMap<>();
+        Process p = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script);
             pb.redirectErrorStream(true);
-            Process p = pb.start();
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), Charset.forName("GBK")))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    line = line.trim();
-                    if (line.isEmpty()) continue;
-                    int sp = line.indexOf(' ');
-                    if (sp <= 0) continue;
-                    try {
-                        long pid = Long.parseLong(line.substring(0, sp));
-                        int port = Integer.parseInt(line.substring(sp + 1).trim());
-                        result.computeIfAbsent(pid, k -> new ArrayList<>()).add(port);
-                    } catch (NumberFormatException ignored) {}
-                }
+            p = pb.start();
+            List<String> lines = readLinesAsync(p);
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                log.warn("snapshotListeningByPid timed out; killed powershell");
+                return Collections.emptyMap();
             }
-            p.waitFor(5, TimeUnit.SECONDS);
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                int sp = line.indexOf(' ');
+                if (sp <= 0) continue;
+                try {
+                    long pid = Long.parseLong(line.substring(0, sp));
+                    int port = Integer.parseInt(line.substring(sp + 1).trim());
+                    result.computeIfAbsent(pid, k -> new ArrayList<>()).add(port);
+                } catch (NumberFormatException ignored) {}
+            }
         } catch (IOException | InterruptedException e) {
+            if (p != null) p.destroyForcibly();
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             log.warn("snapshotListeningByPid failed: {}", e.getMessage());
             return Collections.emptyMap();
         }
         return result;
+    }
+
+    /**
+     * Drains a process's stdout on a daemon thread so a hung child cannot block the
+     * caller past its waitFor timeout. Returns a live list that the reader appends to;
+     * only read it after the process has finished (waitFor returned true).
+     */
+    private static List<String> readLinesAsync(Process p) {
+        List<String> lines = Collections.synchronizedList(new ArrayList<>());
+        Thread reader = new Thread(() -> {
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), Charset.forName("GBK")))) {
+                String line;
+                while ((line = r.readLine()) != null) lines.add(line);
+            } catch (IOException ignored) {}
+        }, "pm-ps-read");
+        reader.setDaemon(true);
+        reader.start();
+        return lines;
     }
 }

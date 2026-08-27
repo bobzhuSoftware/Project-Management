@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { extractError, gitApi, launchesApi, projectsApi } from './api'
 import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto } from './types'
 import { ProjectTable } from './components/ProjectTable'
@@ -43,13 +43,19 @@ export function App() {
   const showError = (title: string, e: unknown) =>
     setDialog({ variant: 'error', title, message: extractError(e) })
 
+  const refreshInFlight = useRef(false)
   const refresh = useCallback(async () => {
+    // Skip if a previous poll is still pending so slow backends don't stack requests.
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
     try {
       const data = await projectsApi.list()
       setProjects(data)
       setError(null)
     } catch (e) {
       setError(extractError(e))
+    } finally {
+      refreshInFlight.current = false
     }
   }, [])
 

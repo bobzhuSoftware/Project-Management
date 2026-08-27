@@ -36,12 +36,13 @@ public class ProjectService {
     private final ProcessSupervisor supervisor;
     private final GitService gitService;
 
-    @Transactional(readOnly = true)
+    // No @Transactional: enriching each launch spawns PowerShell (port detection),
+    // which must not run while a DB connection is held (it would exhaust the pool on
+    // slow machines). Each repo read below runs in its own short auto-commit tx.
     public List<ProjectResponse> list() {
         return repo.findAllByOrderBySortOrderAsc().stream().map(this::toResponse).toList();
     }
 
-    @Transactional(readOnly = true)
     public ProjectResponse get(String id) {
         Project p = repo.findById(id).orElseThrow(() -> new NotFoundException("Project not found: " + id));
         return toResponse(p);

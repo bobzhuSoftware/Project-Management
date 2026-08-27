@@ -233,12 +233,18 @@ public class ProcessSupervisor {
 
         try {
             Process p = pb.start();
-            String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            java.util.concurrent.CompletableFuture<String> outputFuture = readAllAsync(p.getInputStream());
             boolean finished = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 p.destroyForcibly();
                 throw new IllegalStateException(
                         "Command '" + command.getName() + "' timed out after " + timeoutSeconds + "s for: " + project.getName());
+            }
+            String output;
+            try {
+                output = outputFuture.get(5, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException te) {
+                output = "";
             }
             int exit = p.exitValue();
             if (exit != 0) {
@@ -247,7 +253,7 @@ public class ProcessSupervisor {
             }
             log.info("Ran command '{}' on {} (cmd={})", command.getName(), project.getName(), command.getCommand());
             return output;
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException | InterruptedException | java.util.concurrent.ExecutionException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new RuntimeException(
                     "Command '" + command.getName() + "' failed for " + project.getName() + ": " + e.getMessage(), e);
@@ -381,5 +387,19 @@ public class ProcessSupervisor {
     private static String escapeForPowerShell(String cmd) {
         // In PowerShell single-quoted strings, the only escape is '' for a literal '.
         return cmd.replace("'", "''");
+    }
+
+    /**
+     * Reads a process's stdout fully on a daemon thread so a hung child cannot block the
+     * caller past its waitFor timeout. The caller bounds the wait via waitFor + future timeout.
+     */
+    private static java.util.concurrent.CompletableFuture<String> readAllAsync(java.io.InputStream in) {
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try {
+                return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                return "";
+            }
+        });
     }
 }
