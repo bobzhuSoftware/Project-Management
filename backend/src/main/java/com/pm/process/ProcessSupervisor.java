@@ -367,12 +367,12 @@ public class ProcessSupervisor {
         // Encourage child processes to emit UTF-8 instead of the system code page.
         env.put("PYTHONIOENCODING", "utf-8");
         env.put("PYTHONUTF8", "1");
-        // Any nested JVM (mvn, gradle, java) will pick this up automatically.
-        String jto = env.getOrDefault("JAVA_TOOL_OPTIONS", "");
-        if (!jto.contains("file.encoding")) {
-            env.put("JAVA_TOOL_OPTIONS",
-                    (jto.isBlank() ? "" : jto + " ") + "-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8");
-        }
+        // NOTE: We deliberately do NOT set JAVA_TOOL_OPTIONS here. Any JVM started
+        // with it set prints "Picked up JAVA_TOOL_OPTIONS: ..." to stderr, and user
+        // launch scripts that pipe with `2>&1` under `$ErrorActionPreference='Stop'`
+        // treat that line as a terminating NativeCommandError and abort. UTF-8 log
+        // display is already covered by the PowerShell console-encoding wrapper and
+        // ManagedProcess.decodeSmart (UTF-8 with GBK fallback).
         // Disable ANSI colors at the source so the log pane stays clean.
         env.put("NO_COLOR", "1");
         env.put("FORCE_COLOR", "0");
