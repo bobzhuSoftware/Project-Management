@@ -8,7 +8,9 @@ Local dashboard to register and operate the many side projects under `C:\Users\B
 - Frontend: Vite + React 18 + TypeScript + axios
 - Process control: `ProcessBuilder` + `ProcessHandle.descendants()` + PowerShell port-kill fallback
 - Persistence: H2 file `./data/pm.mv.db`
-- Logs: per-process in-memory ring buffer (last 2000 lines) + per-day file under `./logs/`
+- Logs:
+  - Managed projects: per-process in-memory ring buffer (last 2000 lines) + per-day file under `./logs/` (named `<launchId>-<date>.log`)
+  - PM backend itself: rolling file under `./logs/backend/pm-backend.log` (see **Backend logs** below)
 
 ## Run
 
@@ -49,6 +51,21 @@ start-tray.cmd -Rebuild   REM rebuild then launch
 > (same behaviour as `start-dev.ps1`), so it can run alongside a running `start-dev.cmd`.
 > Both modes share the same H2 database (`AUTO_SERVER` mode), so they see the same
 > projects. Development still uses `start-dev.cmd` (two ports + hot reload) as before.
+
+## Backend logs
+
+PM's own backend log is written to `./logs/backend/pm-backend.log` (rolling: 10 MB per file,
+14 days history, 200 MB total cap). This applies to **both** `start-dev` and `start-tray`.
+
+This matters most for **tray mode**: `start-tray.ps1` launches with `javaw` (no console window),
+so without this file the backend's stdout/stderr would be discarded and startup failures would be
+impossible to diagnose. Check `./logs/backend/pm-backend.log` when the tray app misbehaves.
+
+The file lives in a `backend/` subfolder so it never mixes with managed-project logs
+(`./logs/<launchId>-<date>.log`), which the Logs API lists by launch-id prefix.
+
+> Tray mode runs the packaged fat jar, so config changes only take effect after a rebuild
+> (`build-tray.cmd` then `start-tray.cmd`). Dev mode picks it up on the next restart.
 
 ## Adding a project
 
