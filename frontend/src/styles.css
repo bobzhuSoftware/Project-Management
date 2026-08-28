@@ -180,8 +180,8 @@ td.actions button { margin-right: 6px; }
 
 .open-folder-btn { padding: 2px 6px; font-size: 12px; margin-right: 6px; vertical-align: middle; line-height: 1; }
 
-/* Name column: content-sized; grows to fit name + launch badge, truncates only when genuinely long */
-td.name-cell { max-width: 480px; }
+/* Name column: floored so the spacer can't squeeze it below name+badge; caps long names */
+td.name-cell { min-width: 220px; max-width: 480px; }
 .name-cell .name-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .name-cell .name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .name-cell .name-row .open-folder-btn { flex: none; margin: 0; }
