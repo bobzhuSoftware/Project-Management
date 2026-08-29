@@ -251,6 +251,9 @@ td.actions { width: 1%; white-space: nowrap; }
 }
 .action-menu button:hover:not(:disabled) { background: var(--border); }
 .action-menu button.danger-text { color: var(--red); }
+.action-menu-cmd-row { display: flex; gap: 2px; align-items: stretch; }
+.action-menu-cmd-row .action-menu-cmd-run { flex: 1; }
+.action-menu-cmd-row .action-menu-cmd-logs { width: auto; flex: 0 0 auto; text-align: center; padding: 7px 8px; }
 
 /* Drag-and-drop reorder */
 .drag-handle { cursor: grab; user-select: none; color: var(--muted); font-size: 16px; width: 24px; text-align: center; }

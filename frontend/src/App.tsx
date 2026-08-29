@@ -219,6 +219,7 @@ export function App() {
               onStart={handleStart}
               onStop={handleStop}
               onRunCommand={handleRunCommand}
+              onOpenCommandLogs={(p, cmd) => setLogsFor({ source: { id: cmd.id, name: cmd.name, kind: 'command' }, projectName: p.name })}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onLogs={(launch, projectName) => setLogsFor({ source: { id: launch.id, name: launch.name, pid: launch.pid, kind: 'launch' }, projectName })}

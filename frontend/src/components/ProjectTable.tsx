@@ -9,6 +9,7 @@ interface Props {
   onStart: (l: LaunchDto) => void
   onStop: (l: LaunchDto) => void
   onRunCommand: (p: ProjectDto, command: ProjectCommandDto) => void
+  onOpenCommandLogs: (p: ProjectDto, command: ProjectCommandDto) => void
   onEdit: (p: ProjectDto) => void
   onDelete: (p: ProjectDto) => void
   onLogs: (l: LaunchDto, projectName: string) => void
@@ -170,7 +171,7 @@ function aggregateStatus(p: ProjectDto): ProjectStatus {
   return 'STOPPED'
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onRunCommand, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onRunCommand, onOpenCommandLogs, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -387,18 +388,38 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
           <div className="action-menu-backdrop" onClick={closeMenu} />
           <div className="action-menu" style={{ top: menuFor.y + 4, left: menuFor.x - 150 }}>
             {(p.commands ?? []).map(cmd => (
-              <button
-                key={cmd.id}
-                disabled={cmd.requireStopped && anyRunning}
-                title={cmd.requireStopped && anyRunning
-                  ? 'Stop all launches before running this command'
-                  : cmd.script
-                    ? `Run in background (logs): ${cmd.command}`
+              cmd.script ? (
+                <div key={cmd.id} className="action-menu-cmd-row">
+                  <button
+                    className="action-menu-cmd-run"
+                    disabled={cmd.requireStopped && anyRunning}
+                    title={cmd.requireStopped && anyRunning
+                      ? 'Stop all launches before running this command'
+                      : `Run in background (logs): ${cmd.command}`}
+                    onClick={() => run(() => onRunCommand(p, cmd))}
+                  >
+                    {cmd.name} ▶
+                  </button>
+                  <button
+                    className="action-menu-cmd-logs"
+                    title={`View logs: ${cmd.name}`}
+                    onClick={() => run(() => onOpenCommandLogs(p, cmd))}
+                  >
+                    📄
+                  </button>
+                </div>
+              ) : (
+                <button
+                  key={cmd.id}
+                  disabled={cmd.requireStopped && anyRunning}
+                  title={cmd.requireStopped && anyRunning
+                    ? 'Stop all launches before running this command'
                     : `Run: ${cmd.command}`}
-                onClick={() => run(() => onRunCommand(p, cmd))}
-              >
-                {cmd.name}{cmd.script ? ' ▶' : ''}
-              </button>
+                  onClick={() => run(() => onRunCommand(p, cmd))}
+                >
+                  {cmd.name}
+                </button>
+              )
             ))}
             <button
               className="danger-text"
