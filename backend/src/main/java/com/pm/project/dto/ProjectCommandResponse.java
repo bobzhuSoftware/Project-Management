@@ -8,6 +8,7 @@ public class ProjectCommandResponse {
     public String name;
     public String command;
     public boolean requireStopped;
+    public boolean script;
     public Integer timeoutSeconds;
     public int sortOrder;
 
@@ -18,6 +19,7 @@ public class ProjectCommandResponse {
         r.name = c.getName();
         r.command = c.getCommand();
         r.requireStopped = c.isRequireStopped();
+        r.script = c.isScript();
         r.timeoutSeconds = c.getTimeoutSeconds();
         r.sortOrder = c.getSortOrder();
         return r;

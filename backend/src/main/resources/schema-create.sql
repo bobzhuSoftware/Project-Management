@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS project_commands (
     name            VARCHAR(200)  NOT NULL,
     command         VARCHAR(2000) NOT NULL,
     require_stopped BOOLEAN       NOT NULL DEFAULT FALSE,
+    script          BOOLEAN       NOT NULL DEFAULT FALSE,
     timeout_seconds INT,
     sort_order      INT           NOT NULL DEFAULT 0,
     CONSTRAINT pk_project_commands PRIMARY KEY (id),

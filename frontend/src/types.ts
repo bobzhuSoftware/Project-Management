@@ -36,6 +36,7 @@ export interface ProjectCommandDto {
   name: string
   command: string
   requireStopped: boolean
+  script: boolean
   timeoutSeconds?: number | null
   sortOrder: number
 }
@@ -109,5 +110,6 @@ export interface ProjectCommandFormValues {
   name: string
   command: string
   requireStopped: boolean
+  script: boolean
   timeoutSeconds: string
 }

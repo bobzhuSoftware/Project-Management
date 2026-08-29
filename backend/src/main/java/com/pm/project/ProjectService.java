@@ -115,6 +115,10 @@ public class ProjectService {
                 }
             }
         }
+        if (cmd.isScript()) {
+            supervisor.runCommandAsync(p, cmd);
+            return "";
+        }
         return supervisor.runCommand(p, cmd);
     }
 
@@ -236,6 +240,7 @@ public class ProjectService {
             cmd.setName(cr.name.trim());
             cmd.setCommand(cr.command.trim());
             cmd.setRequireStopped(cr.requireStopped != null && cr.requireStopped);
+            cmd.setScript(cr.script != null && cr.script);
             cmd.setTimeoutSeconds(cr.timeoutSeconds != null && cr.timeoutSeconds > 0 ? cr.timeoutSeconds : null);
             cmd.setSortOrder(i);
             commandRepo.save(cmd);

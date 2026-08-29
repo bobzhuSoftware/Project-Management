@@ -15,3 +15,5 @@ CREATE TABLE IF NOT EXISTS project_commands (
     CONSTRAINT fk_project_commands_project
         FOREIGN KEY (project_id) REFERENCES projects (id)
 );
+
+ALTER TABLE project_commands ADD COLUMN IF NOT EXISTS script BOOLEAN DEFAULT FALSE NOT NULL;

@@ -13,5 +13,6 @@ public class ProjectCommandRequest {
     public String command;
 
     public Boolean requireStopped;
+    public Boolean script;
     public Integer timeoutSeconds;
 }

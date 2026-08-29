@@ -30,6 +30,7 @@ interface CommandForm {
   name: string
   command: string
   requireStopped: boolean
+  script: boolean
   timeoutSeconds: string
 }
 
@@ -75,6 +76,7 @@ function initCommands(project: ProjectDto | null): CommandForm[] {
       name: c.name,
       command: c.command,
       requireStopped: c.requireStopped,
+      script: c.script,
       timeoutSeconds: c.timeoutSeconds != null ? String(c.timeoutSeconds) : '',
     }))
   }
@@ -122,7 +124,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
     setCommands(cs => cs.map((c, i) => (i === idx ? { ...c, ...patch } : c)))
   const addCommand = () => {
     const uid = newUid()
-    setCommands(cs => [...cs, { uid, name: '', command: '', requireStopped: false, timeoutSeconds: '' }])
+    setCommands(cs => [...cs, { uid, name: '', command: '', requireStopped: false, script: false, timeoutSeconds: '' }])
     setCmdExpanded(prev => new Set(prev).add(uid))
   }
   const removeCommand = (idx: number) =>
@@ -171,6 +173,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
           name: c.name.trim(),
           command: c.command.trim(),
           requireStopped: c.requireStopped,
+          script: c.script,
           timeoutSeconds,
         }
       })
@@ -376,12 +379,23 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
                         />
                         Require all launches stopped before running (e.g. clean)
                       </label>
+                      <label className="checkbox-inline" style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 'normal', marginTop: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={c.script}
+                          onChange={e => updateCommand(i, { script: e.target.checked })}
+                          style={{ width: 'auto' }}
+                        />
+                        Script (run in background, stream output to logs — no timeout; use for long builds like build-prod.cmd)
+                      </label>
                       <label className="launch-field-label">Timeout seconds (optional, default 120)</label>
                       <input
                         className="mono"
                         value={c.timeoutSeconds}
                         onChange={e => updateCommand(i, { timeoutSeconds: e.target.value })}
                         placeholder="e.g. 300"
+                        disabled={c.script}
+                        title={c.script ? 'Not used for script commands (they run without a timeout)' : undefined}
                       />
                     </div>
                   )}

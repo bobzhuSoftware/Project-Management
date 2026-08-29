@@ -3,7 +3,7 @@ import { extractError, gitApi, launchesApi, projectsApi } from './api'
 import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto } from './types'
 import { ProjectTable } from './components/ProjectTable'
 import { ProjectFormModal } from './components/ProjectFormModal'
-import { LogsDrawer } from './components/LogsDrawer'
+import { LogsDrawer, type LogSource } from './components/LogsDrawer'
 import { GitSyncModal } from './components/GitSyncModal'
 import { SettingsModal } from './components/SettingsModal'
 import { PushControlModal } from './components/PushControlModal'
@@ -29,7 +29,7 @@ export function App() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [editing, setEditing] = useState<ProjectDto | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [logsFor, setLogsFor] = useState<{ launch: LaunchDto; projectName: string } | null>(null)
+  const [logsFor, setLogsFor] = useState<{ source: LogSource; projectName: string } | null>(null)
   const [gitModal, setGitModal] = useState<{ project: ProjectDto; mode: 'sync' | 'changes' | 'pull' } | null>(null)
   const [gitStatus, setGitStatus] = useState<Record<string, GitStatusDto | undefined>>({})
   const [gitLoading, setGitLoading] = useState<Record<string, boolean>>({})
@@ -113,6 +113,17 @@ export function App() {
     finally { setBusyId(null) }
   }
   const handleRunCommand = async (p: ProjectDto, command: ProjectCommandDto) => {
+    if (command.script) {
+      // Long-running script: fire off in the background and open the logs drawer to watch it.
+      setBusyId(p.id)
+      try {
+        await projectsApi.runCommand(p.id, command.id)
+        setLogsFor({ source: { id: command.id, name: command.name, kind: 'command' }, projectName: p.name })
+      }
+      catch (e) { showError(`${command.name} failed to start: ${p.name}`, e) }
+      finally { setBusyId(null) }
+      return
+    }
     setBusyId(p.id)
     try {
       const output = await projectsApi.runCommand(p.id, command.id)
@@ -210,7 +221,7 @@ export function App() {
               onRunCommand={handleRunCommand}
               onEdit={handleEdit}
               onDelete={handleDelete}
-              onLogs={(launch, projectName) => setLogsFor({ launch, projectName })}
+              onLogs={(launch, projectName) => setLogsFor({ source: { id: launch.id, name: launch.name, pid: launch.pid, kind: 'launch' }, projectName })}
               onSync={(p) => setGitModal({ project: p, mode: 'sync' })}
               onShowPull={(p) => setGitModal({ project: p, mode: 'pull' })}
               onShowChanges={(p) => setGitModal({ project: p, mode: 'changes' })}
@@ -229,7 +240,7 @@ export function App() {
         />
       )}
       {logsFor && (
-        <LogsDrawer launch={logsFor.launch} projectName={logsFor.projectName} onClose={() => setLogsFor(null)} />
+        <LogsDrawer source={logsFor.source} projectName={logsFor.projectName} onClose={() => setLogsFor(null)} />
       )}
       {gitModal && (
         <GitSyncModal

@@ -392,10 +392,12 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                 disabled={cmd.requireStopped && anyRunning}
                 title={cmd.requireStopped && anyRunning
                   ? 'Stop all launches before running this command'
-                  : `Run: ${cmd.command}`}
+                  : cmd.script
+                    ? `Run in background (logs): ${cmd.command}`
+                    : `Run: ${cmd.command}`}
                 onClick={() => run(() => onRunCommand(p, cmd))}
               >
-                {cmd.name}
+                {cmd.name}{cmd.script ? ' ▶' : ''}
               </button>
             ))}
             <button

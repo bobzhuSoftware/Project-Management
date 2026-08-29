@@ -260,6 +260,55 @@ public class ProcessSupervisor {
         }
     }
 
+    /**
+     * Run a long-running script command asynchronously: start it in the background as a managed
+     * process, stream its output to the logs (keyed by command id), and return immediately. Unlike
+     * {@link #runCommand} there is no timeout — use this for builds that may take minutes.
+     */
+    public synchronized void runCommandAsync(Project project, ProjectCommand command) {
+        if (command.getCommand() == null || command.getCommand().isBlank()) {
+            throw new IllegalStateException("No command configured for: " + command.getName());
+        }
+        ManagedProcess existing = live.get(command.getId());
+        if (existing != null && existing.isAlive()) {
+            throw new IllegalStateException("Command '" + command.getName() + "' is already running.");
+        }
+
+        File workDir = new File(project.getRootDirectory());
+        if (!workDir.isDirectory()) {
+            throw new IllegalArgumentException("Root directory does not exist: " + project.getRootDirectory());
+        }
+
+        ProcessBuilder pb = new ProcessBuilder(
+                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
+                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " +
+                "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
+                "& cmd.exe /c '" + escapeForPowerShell(command.getCommand()) + "'");
+        pb.directory(workDir);
+        pb.redirectErrorStream(true);
+        applyUtf8AndNoColorEnv(pb);
+        applyConfiguredJavaHome(pb);
+        applyConfiguredNodeHome(pb);
+
+        Process p;
+        try {
+            p = pb.start();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to start command '" + command.getName() + "': " + e.getMessage(), e);
+        }
+
+        Path logFile = Paths.get(logsDir,
+                command.getId() + "-" + LocalDate.now().format(DateTimeFormatter.ISO_DATE) + ".log");
+        ManagedProcess mp = new ManagedProcess(command.getId(), p, new RingBuffer(ringCapacity), logFile);
+        live.put(command.getId(), mp);
+        // Evict from the live registry once the script finishes; the archived log file remains.
+        p.onExit().thenRun(() -> live.remove(command.getId(), mp));
+
+        log.info("Started script command '{}' on {} (pid={}, cmd={})",
+                command.getName(), project.getName(), p.pid(), command.getCommand());
+    }
+
     /** Resolve current status without mutation. */
     public ProjectStatus statusOf(String launchId) {
         ManagedProcess mp = live.get(launchId);

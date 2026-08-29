@@ -38,7 +38,15 @@ public class ProjectCommand {
     @Builder.Default
     private boolean requireStopped = false;
 
-    /** Optional per-command timeout; falls back to a default when null. */
+    /**
+     * When true the command is a long-running script: it runs asynchronously in the background and
+     * streams its output to the logs (like a launch) instead of blocking synchronously on a timeout.
+     */
+    @Column(name = "script", nullable = false)
+    @Builder.Default
+    private boolean script = false;
+
+    /** Optional per-command timeout for synchronous (non-script) commands; falls back to a default when null. */
     @Column(name = "timeout_seconds")
     private Integer timeoutSeconds;
 

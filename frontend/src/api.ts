@@ -16,6 +16,7 @@ export interface ProjectCommandPayload {
   name: string
   command: string
   requireStopped?: boolean
+  script?: boolean
   timeoutSeconds?: number | null
 }
 
@@ -74,14 +75,22 @@ export const settingsApi = {
 }
 
 export const logsApi = {
-  history: (launchId: string) =>
-    api.get<LogFileEntry[]>(`/launches/${launchId}/logs/history`).then(r => r.data),
-  historyContent: (launchId: string, filename: string) =>
-    api.get<string>(`/launches/${launchId}/logs/history/${encodeURIComponent(filename)}`,
+  streamUrl: (kind: LogKind, id: string) => `/api${logsBasePath(kind, id)}/stream`,
+  history: (kind: LogKind, id: string) =>
+    api.get<LogFileEntry[]>(`${logsBasePath(kind, id)}/history`).then(r => r.data),
+  historyContent: (kind: LogKind, id: string, filename: string) =>
+    api.get<string>(`${logsBasePath(kind, id)}/history/${encodeURIComponent(filename)}`,
       { responseType: 'text', transformResponse: x => x }).then(r => r.data),
-  historyDownloadUrl: (launchId: string, filename: string) =>
-    `/api/launches/${launchId}/logs/history/${encodeURIComponent(filename)}?download=true`,
+  historyDownloadUrl: (kind: LogKind, id: string, filename: string) =>
+    `/api${logsBasePath(kind, id)}/history/${encodeURIComponent(filename)}?download=true`,
 }
+
+export type LogKind = 'launch' | 'command'
+
+const logsBasePath = (kind: LogKind, id: string) =>
+  kind === 'command' ? `/commands/${id}/logs` : `/launches/${id}/logs`
+
+export const logSourceApi = logsApi
 
 export function extractError(err: unknown): string {
   if (axios.isAxiosError(err)) {
