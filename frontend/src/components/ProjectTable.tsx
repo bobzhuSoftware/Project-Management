@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, ProjectStatus } from '../types'
+import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, ProjectStatus, Reach } from '../types'
 
 interface Props {
   projects: ProjectDto[]
@@ -8,6 +8,9 @@ interface Props {
   gitLoading: Record<string, boolean>
   onStart: (l: LaunchDto) => void
   onStop: (l: LaunchDto) => void
+  onReachChange: (l: LaunchDto, reach: Reach) => void
+  onShowWifi: (l: LaunchDto) => void
+  onShowShare: (l: LaunchDto) => void
   onRunCommand: (p: ProjectDto, command: ProjectCommandDto) => void
   onOpenCommandLogs: (p: ProjectDto, command: ProjectCommandDto) => void
   onEdit: (p: ProjectDto) => void
@@ -34,6 +37,51 @@ function uptime(startedAt?: string | null): string {
 }
 
 interface PortItem { port: number; registered: boolean }
+
+const REACH_OPTIONS: { value: Reach; label: string; title: string }[] = [
+  { value: 'LOCAL', label: 'Local', title: 'localhost only (this machine)' },
+  { value: 'WIFI', label: 'Wi-Fi', title: 'Reachable as <alias>.local on the same Wi-Fi' },
+  { value: 'INTERNET', label: 'Internet', title: 'Exposed via a temporary public link' },
+]
+
+function ReachToggle({ launch, busy, onChange }: { launch: LaunchDto; busy: boolean; onChange: (l: LaunchDto, reach: Reach) => void }): JSX.Element | null {
+  if (!launch.alias) return null
+  const current = launch.reach ?? 'LOCAL'
+  return (
+    <span className="reach-toggle" role="group" aria-label="Reach">
+      {REACH_OPTIONS.map(o => (
+        <button
+          key={o.value}
+          type="button"
+          className={`reach-opt${current === o.value ? ' active' : ''}`}
+          title={o.title}
+          disabled={busy || current === o.value}
+          onClick={(e) => { e.stopPropagation(); onChange(launch, o.value) }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+function renderAddress(l: LaunchDto): JSX.Element | null {
+  if (!l.alias) return null
+  const label = `${l.alias}.localhost`
+  const reachable = l.status === 'RUNNING' || l.status === 'ATTACHED' || l.status === 'EXTERNAL'
+  if (l.address && reachable) {
+    return (
+      <a className="alias-link" href={l.address} target="_blank" rel="noreferrer" title={`Open ${l.address}`}>
+        🔗 {label}
+      </a>
+    )
+  }
+  return (
+    <span className="alias-link muted" title="Start this launch to open its named address">
+      🔗 {label}
+    </span>
+  )
+}
 
 function renderPorts(p: LaunchDto, running: boolean, external: boolean): JSX.Element | string {
   const registered = new Set(p.ports ?? [])
@@ -171,7 +219,7 @@ function aggregateStatus(p: ProjectDto): ProjectStatus {
   return 'STOPPED'
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onRunCommand, onOpenCommandLogs, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onReachChange, onShowWifi, onShowShare, onRunCommand, onOpenCommandLogs, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -302,6 +350,18 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                   {!single && <span className="launch-count" title="Number of launches">{launches.length} launches</span>}
                 </div>
                 {p.description && <div className="muted name-desc">{p.description}</div>}
+                {single && only && renderAddress(only) && (
+                  <div className="name-address">
+                    {renderAddress(only)}
+                    <ReachToggle launch={only} busy={onlyBusy} onChange={onReachChange} />
+                    {only.reach === 'WIFI' && (
+                      <button className="wifi-qr-btn" title="Show phone QR code" onClick={(e) => { e.stopPropagation(); onShowWifi(only) }}>📱</button>
+                    )}
+                    {only.reach === 'INTERNET' && (
+                      <button className="wifi-qr-btn" title="Public link" onClick={(e) => { e.stopPropagation(); onShowShare(only) }}>🌐</button>
+                    )}
+                  </div>
+                )}
               </td>
               {single && only ? (
                 <>
@@ -354,6 +414,18 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                   <td className="launch-name-cell">
                     <span className="launch-branch">↳</span>
                     <span className="launch-name">{l.name}</span>
+                    {renderAddress(l) && (
+                      <div className="name-address">
+                        {renderAddress(l)}
+                        <ReachToggle launch={l} busy={busy} onChange={onReachChange} />
+                        {l.reach === 'WIFI' && (
+                          <button className="wifi-qr-btn" title="Show phone QR code" onClick={(e) => { e.stopPropagation(); onShowWifi(l) }}>📱</button>
+                        )}
+                        {l.reach === 'INTERNET' && (
+                          <button className="wifi-qr-btn" title="Public link" onClick={(e) => { e.stopPropagation(); onShowShare(l) }}>🌐</button>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td><span className={`badge ${l.status}`}>{l.status}</span></td>
                   <td>{renderPorts(l, running, external)}</td>

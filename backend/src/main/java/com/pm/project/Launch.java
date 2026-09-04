@@ -4,6 +4,8 @@ import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -36,6 +38,20 @@ public class Launch {
 
     @Column(nullable = false, length = 200)
     private String name;
+
+    /** Stable slug used for the {@code <alias>.localhost} named address (Rung 1). Unique across launches. */
+    @Column(name = "alias", length = 200)
+    private String alias;
+
+    /** How far the named address reaches (Rung 2/3). Default LOCAL = localhost only. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reach", length = 16, nullable = false)
+    @Builder.Default
+    private Reach reach = Reach.LOCAL;
+
+    /** When an INTERNET share link auto-expires (Rung 3). Null = no expiry (until toggled off / quit). */
+    @Column(name = "share_expires_at")
+    private Instant shareExpiresAt;
 
     @Column(name = "start_command", nullable = false, length = 2000)
     private String startCommand;

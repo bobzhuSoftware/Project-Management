@@ -105,6 +105,27 @@ td.actions button { margin-right: 6px; }
 .port-link:hover { text-decoration: underline; }
 .port-auto { color: #888; font-size: 0.85em; font-style: italic; }
 
+.name-address { margin-top: 2px; }
+.alias-link { font-size: 0.8em; color: var(--accent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.alias-link:hover { text-decoration: underline; }
+.alias-link.muted { color: var(--gray); cursor: default; }
+.alias-link.muted:hover { text-decoration: none; }
+
+.reach-toggle { display: inline-flex; margin-left: 8px; vertical-align: middle; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.reach-opt { font-size: 0.7em; line-height: 1.4; padding: 1px 6px; border: none; background: transparent; color: var(--gray); cursor: pointer; }
+.reach-opt:not(:last-child) { border-right: 1px solid var(--border); }
+.reach-opt:hover:not(:disabled) { background: rgba(127,127,127,0.15); }
+.reach-opt.active { background: var(--accent); color: #fff; cursor: default; }
+.reach-opt:disabled:not(.active) { opacity: 0.5; cursor: default; }
+.wifi-qr-btn { margin-left: 6px; padding: 0 4px; border: none; background: transparent; cursor: pointer; font-size: 0.95em; line-height: 1; vertical-align: middle; }
+.field-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin: 4px 0 6px; }
+.wifi-qr-btn:hover { filter: brightness(1.2); }
+
+.wifi-share { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 8px 0; }
+.wifi-qr { border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 6px; }
+.wifi-url { display: flex; align-items: center; gap: 8px; }
+.wifi-url code { font-size: 0.9em; word-break: break-all; }
+
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal {
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;

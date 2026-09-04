@@ -40,6 +40,23 @@ pm:
   logs:
     dir: ./logs
     ring-capacity: 2000
+  proxy:
+    # Rung 1: named <alias>.localhost reverse proxy. Binds 80, falls back to 7777 if taken.
+    enabled: true
+    port: 80
+    fallback-port: 7777
+    # Rung 2: separate 0.0.0.0 listener for <alias>.local (phones). Preferred port, scans upward
+    # if taken. Kept off 80 because Windows http.sys usually owns the wildcard :80.
+    lan-port: 7777
+  mdns:
+    # Rung 2: announce <alias>.local over mDNS for launches shared on Wi-Fi (reach=WIFI/INTERNET).
+    enabled: true
+  tunnel:
+    # Rung 3: expose a launch on the Internet via a Cloudflare quick tunnel (reach=INTERNET).
+    # Only the host needs the cloudflared binary; visitors need only a browser. No account/domain.
+    enabled: true
+    cloudflared-path: cloudflared
+    start-timeout-seconds: 45
   cors:
     allowed-origins: http://localhost:5180,http://127.0.0.1:5180
   shutdown:
@@ -61,3 +78,6 @@ logging:
   level:
     root: INFO
     com.pm: DEBUG
+    # JmDNS floods WARNs for DNS record type 65 (HTTPS/SVCB) that Apple devices query but it
+    # can't parse. Harmless (A-record resolution still works); silence the noise.
+    javax.jmdns: ERROR

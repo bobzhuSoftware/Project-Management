@@ -17,3 +17,12 @@ CREATE TABLE IF NOT EXISTS project_commands (
 );
 
 ALTER TABLE project_commands ADD COLUMN IF NOT EXISTS script BOOLEAN DEFAULT FALSE NOT NULL;
+
+-- Rung 1: named <alias>.localhost address per launch.
+ALTER TABLE launches ADD COLUMN IF NOT EXISTS alias VARCHAR(200);
+
+-- Rung 2/3: how far the named address reaches (LOCAL / WIFI / INTERNET).
+ALTER TABLE launches ADD COLUMN IF NOT EXISTS reach VARCHAR(16) DEFAULT 'LOCAL' NOT NULL;
+
+-- Rung 3: when an INTERNET share link auto-expires (NULL = no expiry).
+ALTER TABLE launches ADD COLUMN IF NOT EXISTS share_expires_at TIMESTAMP;

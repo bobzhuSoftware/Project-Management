@@ -2,10 +2,19 @@ export type ProjectStatus = 'RUNNING' | 'ATTACHED' | 'EXTERNAL' | 'STOPPED' | 'E
 
 export type ProjectCategory = 'APPLICATION' | 'DATABASE' | 'SCRIPT' | 'OTHER'
 
+export type Reach = 'LOCAL' | 'WIFI' | 'INTERNET'
+
 export interface LaunchDto {
   id: string
   projectId: string
   name: string
+  alias?: string | null
+  address?: string | null
+  reach: Reach
+  wifiAddress?: string | null
+  shareUrl?: string | null
+  shareKey?: string | null
+  shareExpiresAt?: string | null
   startCommand: string
   stopCommand?: string | null
   ports: number[]

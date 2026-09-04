@@ -3,6 +3,9 @@ package com.pm.project;
 import com.pm.process.ProcessSupervisor;
 import com.pm.git.GitService;
 import com.pm.process.RuntimeStateRepository;
+import com.pm.proxy.LocalProxyServer;
+import com.pm.proxy.Slugs;
+import com.pm.proxy.TunnelManager;
 import com.pm.project.dto.LaunchRequest;
 import com.pm.project.dto.LaunchResponse;
 import com.pm.project.dto.ProjectCommandRequest;
@@ -35,6 +38,8 @@ public class ProjectService {
     private final RuntimeStateRepository runtimeRepo;
     private final ProcessSupervisor supervisor;
     private final GitService gitService;
+    private final LocalProxyServer proxy;
+    private final TunnelManager tunnels;
 
     // No @Transactional: enriching each launch spawns PowerShell (port detection),
     // which must not run while a DB connection is held (it would exhaust the pool on
@@ -61,7 +66,7 @@ public class ProjectService {
         p.setCreatedAt(now);
         p.setUpdatedAt(now);
         Project saved = repo.save(p);
-        reconcileLaunches(saved.getId(), req.launches);
+        reconcileLaunches(saved, req.launches);
         reconcileCommands(saved.getId(), req.commands);
         gitService.applyPushHook(saved);
         return toResponse(saved);
@@ -79,7 +84,7 @@ public class ProjectService {
         applyRequest(p, req);
         p.setUpdatedAt(Instant.now());
         Project saved = repo.save(p);
-        reconcileLaunches(saved.getId(), req.launches);
+        reconcileLaunches(saved, req.launches);
         reconcileCommands(saved.getId(), req.commands);
         gitService.applyPushHook(saved);
         return toResponse(saved);
@@ -184,9 +189,16 @@ public class ProjectService {
     }
 
     /** Creates/updates/removes launches so the persisted set matches the request. */
-    private void reconcileLaunches(String projectId, List<LaunchRequest> requested) {
+    private void reconcileLaunches(Project project, List<LaunchRequest> requested) {
+        String projectId = project.getId();
         Map<String, Launch> existing = launchRepo.findByProjectIdOrderBySortOrderAsc(projectId).stream()
                 .collect(Collectors.toMap(Launch::getId, Function.identity()));
+        // Every alias in use across all launches, so generated names never collide.
+        Set<String> takenAliases = launchRepo.findAll().stream()
+                .map(Launch::getAlias)
+                .filter(a -> a != null && !a.isBlank())
+                .map(a -> a.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toCollection(HashSet::new));
         Set<String> keep = new HashSet<>();
         Instant now = Instant.now();
 
@@ -206,6 +218,14 @@ public class ProjectService {
             launch.setPorts(lr.ports != null ? new ArrayList<>(lr.ports) : new ArrayList<>());
             launch.setSortOrder(i);
             launch.setUpdatedAt(now);
+            // reach is managed via the dedicated endpoint; honour an explicit request value,
+            // otherwise keep the existing one (new launches default to LOCAL).
+            if (lr.reach != null) {
+                launch.setReach(lr.reach);
+            } else if (launch.getReach() == null) {
+                launch.setReach(Reach.LOCAL);
+            }
+            assignAlias(launch, lr, project, requested.size(), takenAliases);
             launchRepo.save(launch);
             keep.add(launch.getId());
         }
@@ -269,12 +289,60 @@ public class ProjectService {
         List<Integer> detected = (status == ProjectStatus.RUNNING || status == ProjectStatus.ATTACHED)
                 ? supervisor.detectListeningPorts(l.getId())
                 : List.of();
-        return LaunchResponse.from(
+        LaunchResponse r = LaunchResponse.from(
                 l,
                 status,
                 supervisor.getLive(l.getId()).orElse(null),
                 supervisor.getRuntimeState(l.getId()).orElse(null),
                 detected);
+        r.address = buildAddress(l.getAlias());
+        r.wifiAddress = buildWifiAddress(l);
+        tunnels.current(l.getId()).ifPresent(s -> {
+            r.shareUrl = s.url();
+            r.shareKey = s.key();
+            r.shareExpiresAt = s.expiresAt();
+        });
+        return r;
+    }
+
+    /** The {@code http://<alias>.localhost[:port]} URL when the proxy is up, else null. */
+    private String buildAddress(String alias) {
+        if (alias == null || alias.isBlank()) return null;
+        int port = proxy.getBoundPort();
+        if (port <= 0) return null;
+        return "http://" + alias + ".localhost" + (port == 80 ? "" : ":" + port);
+    }
+
+    /** The {@code http://<alias>.local[:port]} URL for a Wi-Fi-shared launch, else null. */
+    private String buildWifiAddress(Launch l) {
+        if (l.getReach() == null || l.getReach() == Reach.LOCAL) return null;
+        String alias = l.getAlias();
+        if (alias == null || alias.isBlank()) return null;
+        int port = proxy.getLanPort();
+        if (port <= 0) return null;
+        return "http://" + alias + ".local" + (port == 80 ? "" : ":" + port);
+    }
+
+    /**
+     * Resolves the launch's {@code <alias>.localhost} slug: honours an explicit request alias,
+     * keeps an existing one, otherwise derives a unique slug from the project (and launch) name.
+     */
+    private void assignAlias(Launch launch, LaunchRequest lr, Project project,
+                             int launchCount, Set<String> taken) {
+        String shortId = launch.getId().substring(0, Math.min(8, launch.getId().length()));
+        String fallback = "launch-" + shortId;
+        String result;
+        if (lr.alias != null && !lr.alias.isBlank()) {
+            if (launch.getAlias() != null) taken.remove(launch.getAlias().toLowerCase(Locale.ROOT));
+            result = Slugs.uniqueSlug(lr.alias, fallback, taken);
+        } else if (launch.getAlias() != null && !launch.getAlias().isBlank()) {
+            result = launch.getAlias();
+        } else {
+            String base = launchCount == 1 ? project.getName() : project.getName() + "-" + lr.name;
+            result = Slugs.uniqueSlug(base, fallback, taken);
+        }
+        launch.setAlias(result);
+        taken.add(result.toLowerCase(Locale.ROOT));
     }
 
     public static class NotFoundException extends RuntimeException {

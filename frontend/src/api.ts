@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings, GitDiffDto, GitFileChange, GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto } from './types'
+import type { AppSettings, GitDiffDto, GitFileChange, GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto, Reach } from './types'
 
 const api = axios.create({ baseURL: '/api', timeout: 30000 })
 
@@ -46,6 +46,8 @@ export const projectsApi = {
 export const launchesApi = {
   start: (launchId: string) => api.post<ProjectDto>(`/launches/${launchId}/start`).then(r => r.data),
   stop: (launchId: string) => api.post<ProjectDto>(`/launches/${launchId}/stop`).then(r => r.data),
+  setReach: (launchId: string, reach: Reach, shareTtlMinutes?: number | null) =>
+    api.put<ProjectDto>(`/launches/${launchId}/reach`, { reach, shareTtlMinutes }).then(r => r.data),
 }
 
 export interface LogFileEntry {

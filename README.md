@@ -126,6 +126,60 @@ C:\Program Files\nodejs
 
 `start-dev.ps1` reads this file on every launch, sets `NODE_HOME`, and prepends the directory to `PATH` before starting the frontend. Both `npm install` and `npx vite` will use that Node.js version. If the file does not exist, the system default is used unchanged.
 
+## Sharing a project (Reach: Local / Wi-Fi / Internet)
+
+Each launch has a **Reach** toggle that controls how far its named address is reachable. Everything
+defaults to **Local** (off); nothing is shared unless you opt a specific launch in.
+
+| Reach        | Address                                   | Who can reach it                          | Dependency (on **this** machine) |
+|--------------|-------------------------------------------|-------------------------------------------|----------------------------------|
+| **Local**    | `http://<alias>.localhost`                | Only this machine                         | none (built-in proxy)            |
+| **Wi-Fi**    | `http://<alias>.local:<port>`             | Devices on the same Wi-Fi (phones, etc.)  | none (built-in mDNS + LAN listener) |
+| **Internet** | `https://<random>.trycloudflare.com?key=…`| Anyone with the link + key                | `cloudflared` binary (see below) |
+
+### Dependencies
+
+- **Local / Wi-Fi** need **nothing extra** — the reverse proxy and mDNS responder are built into the
+  backend. Wi-Fi sharing reuses an existing firewall-allowed inbound port, so it needs no admin rights.- **Internet** sharing uses a [Cloudflare **quick tunnel**](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/):
+  - Requires the **`cloudflared`** binary installed **only on this (host) machine**.
+    Install with `winget install --id Cloudflare.cloudflared` or drop the single `cloudflared.exe`
+    on your `PATH`. If it's missing, the Internet toggle reports a clear error.
+  - **No Cloudflare account, no sign-up, no purchase, and no domain** are required for quick tunnels.
+  - **People you share the link with need nothing** — just a browser. They do **not** install
+    `cloudflared` or anything else.
+  - It's an **outbound** connection, so it needs **no admin rights and no inbound firewall rule**,
+    and it gives you real **HTTPS** that also works off your Wi-Fi.
+
+> A quick-tunnel URL is temporary and **changes every time the tunnel (re)starts** — e.g. after an app
+> restart the same launch gets a new `trycloudflare.com` address. For a permanent, stable URL you'd need
+> a Cloudflare **named tunnel** (which does require an account and a domain); that is out of scope here.
+
+> **CORS just works.** When the proxy forwards a request (via `<alias>.localhost`, `<alias>.local`, or a
+> tunnel) it rewrites the `Host` **and** `Origin` headers to the upstream's own origin
+> (`http://127.0.0.1:<port>`). Shared apps therefore see a request that matches the usual
+> `http://localhost:*` / `http://127.0.0.1:*` dev CORS allowlists, so you don't need to add the share
+> URL to each app's CORS config.
+
+### Link lifetime (expiry)
+
+When you flip a launch to **Internet**, you choose how long the link stays live:
+
+- **Presets**: 1 hour (default) · 8 hours · 24 hours · 7 days.
+- **No expiry** — stays up until you toggle it off or quit PM. Use this for **trusted partners** who
+  need long-running access.
+
+Regardless of the chosen lifetime, an Internet link **always**:
+
+- carries a secret **`key`** in the URL — the link "names nothing" and refuses traffic without the key;
+- **dies** the moment you toggle the launch back to Local/Wi-Fi, and when PM shuts down.
+
+So "No expiry" is still safe: it's key-gated, host-controlled, and never outlives the app.
+
 ## Security
 
-The backend binds to `127.0.0.1` and executes arbitrary user-supplied shell commands. **Do not expose it to the LAN.**
+The backend binds to `127.0.0.1` and executes arbitrary user-supplied shell commands. **Do not expose
+the PM dashboard itself to the LAN or the internet.**
+
+The **Reach** feature only ever exposes the *managed launches you explicitly opt in* — never PM's own
+API or other launches. Wi-Fi/Internet listeners apply admission control (unknown or not-shared hosts get
+an opaque 404), and Internet links are key-gated and revocable. Everything defaults to Local (off).

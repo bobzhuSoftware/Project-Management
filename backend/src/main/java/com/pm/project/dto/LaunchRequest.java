@@ -1,5 +1,6 @@
 package com.pm.project.dto;
 
+import com.pm.project.Reach;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.ArrayList;
@@ -16,5 +17,12 @@ public class LaunchRequest {
     public String startCommand;
 
     public String stopCommand;
+
+    /** Optional custom alias for the {@code <alias>.localhost} address; auto-generated when blank. */
+    public String alias;
+
+    /** Optional reach (LOCAL / WIFI / INTERNET); null keeps the existing value (defaults LOCAL for new launches). */
+    public Reach reach;
+
     public List<Integer> ports = new ArrayList<>();
 }

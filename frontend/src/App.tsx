@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { extractError, gitApi, launchesApi, projectsApi } from './api'
-import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto } from './types'
+import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, Reach } from './types'
 import { ProjectTable } from './components/ProjectTable'
 import { ProjectFormModal } from './components/ProjectFormModal'
 import { LogsDrawer, type LogSource } from './components/LogsDrawer'
 import { GitSyncModal } from './components/GitSyncModal'
 import { SettingsModal } from './components/SettingsModal'
 import { PushControlModal } from './components/PushControlModal'
+import { WifiShareModal } from './components/WifiShareModal'
+import { ShareModal } from './components/ShareModal'
 import { MessageDialog, type DialogState } from './components/MessageDialog'
 import { Sidebar, categoryTitle, type CategoryFilter, type SidebarMode } from './components/Sidebar'
 
@@ -38,6 +40,8 @@ export function App() {
   const [sidebarFloating, setSidebarFloating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPushControl, setShowPushControl] = useState(false)
+  const [wifiShare, setWifiShare] = useState<LaunchDto | null>(null)
+  const [shareLaunch, setShareLaunch] = useState<LaunchDto | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
 
   const showError = (title: string, e: unknown) =>
@@ -46,14 +50,16 @@ export function App() {
   const refreshInFlight = useRef(false)
   const refresh = useCallback(async () => {
     // Skip if a previous poll is still pending so slow backends don't stack requests.
-    if (refreshInFlight.current) return
+    if (refreshInFlight.current) return undefined
     refreshInFlight.current = true
     try {
       const data = await projectsApi.list()
       setProjects(data)
       setError(null)
+      return data
     } catch (e) {
       setError(extractError(e))
+      return undefined
     } finally {
       refreshInFlight.current = false
     }
@@ -111,6 +117,36 @@ export function App() {
     try { await launchesApi.stop(launch.id); await refresh(); fetchGitStatus(launch.projectId, true) }
     catch (e) { showError(`Failed to stop: ${launch.name}`, e) }
     finally { setBusyId(null) }
+  }
+  const handleReachChange = async (launch: LaunchDto, reach: Reach) => {
+    // Internet needs a lifetime choice and shows the generated link — do it in a modal.
+    if (reach === 'INTERNET') { setShareLaunch(launch); return }
+    setBusyId(launch.id)
+    try {
+      await launchesApi.setReach(launch.id, reach)
+      const data = await refresh()
+      // Keep the QR modal in sync with the freshly returned wifiAddress when it's open.
+      if (reach !== 'LOCAL') {
+        const updated = data?.flatMap(p => p.launches ?? []).find(l => l.id === launch.id)
+        if (updated) setWifiShare(updated)
+      } else {
+        setWifiShare(prev => (prev?.id === launch.id ? null : prev))
+      }
+      setShareLaunch(prev => (prev?.id === launch.id ? null : prev))
+    }
+    catch (e) { showError(`Failed to update reach: ${launch.name}`, e) }
+    finally { setBusyId(null) }
+  }
+  const handleShareCreate = async (launch: LaunchDto, ttlMinutes: number | null) => {
+    await launchesApi.setReach(launch.id, 'INTERNET', ttlMinutes)
+    const data = await refresh()
+    const updated = data?.flatMap(p => p.launches ?? []).find(l => l.id === launch.id)
+    if (updated) setShareLaunch(updated)
+  }
+  const handleShareStop = async (launch: LaunchDto) => {
+    await launchesApi.setReach(launch.id, 'LOCAL')
+    await refresh()
+    setShareLaunch(null)
   }
   const handleRunCommand = async (p: ProjectDto, command: ProjectCommandDto) => {
     if (command.script) {
@@ -218,6 +254,9 @@ export function App() {
               gitLoading={gitLoading}
               onStart={handleStart}
               onStop={handleStop}
+              onReachChange={handleReachChange}
+              onShowWifi={(l) => setWifiShare(l)}
+              onShowShare={(l) => setShareLaunch(l)}
               onRunCommand={handleRunCommand}
               onOpenCommandLogs={(p, cmd) => setLogsFor({ source: { id: cmd.id, name: cmd.name, kind: 'command' }, projectName: p.name })}
               onEdit={handleEdit}
@@ -267,6 +306,17 @@ export function App() {
             setShowPushControl(false)
             if (changed) { refresh(); refreshAllGit(projects.map(p => p.id), true) }
           }}
+        />
+      )}
+      {wifiShare && (
+        <WifiShareModal launch={wifiShare} onClose={() => setWifiShare(null)} />
+      )}
+      {shareLaunch && (
+        <ShareModal
+          launch={shareLaunch}
+          onCreate={(ttl) => handleShareCreate(shareLaunch, ttl)}
+          onStop={() => handleShareStop(shareLaunch)}
+          onClose={() => setShareLaunch(null)}
         />
       )}
       {dialog && (
