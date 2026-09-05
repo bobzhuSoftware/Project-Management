@@ -264,15 +264,19 @@ td.actions { width: 1%; white-space: nowrap; }
 .git-file-picker-summary .caret.open { transform: rotate(90deg); }
 .git-file-picker.has-excluded .git-file-picker-summary { color: #d7ba7d; }
 .git-file-picker .picker-partial { font-weight: 600; }
-.git-file-picker-body { border-top: 1px solid var(--border); }
-.git-file-picker-toolbar { display: flex; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
-.git-file-picker-toolbar button { font-size: 11px; padding: 2px 8px; }
+.git-file-picker-hint { margin-left: auto; font-size: 11px; color: var(--muted); opacity: 0.8; }
 .git-file-picker-list { list-style: none; margin: 0; padding: 4px 0; max-height: 180px; overflow: auto; }
+.git-file-picker-list.readonly { border-top: 1px solid var(--border); }
 .git-file-picker-list .git-file { gap: 6px; }
 .git-file-picker-list .git-file.excluded .git-file-path { color: var(--muted); text-decoration: line-through; opacity: 0.6; }
+.git-file-excluded-badge { margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #d7ba7d; }
 .git-file-check { display: flex; align-items: center; gap: 6px; flex-shrink: 0; cursor: pointer; }
 .git-file-check input { cursor: pointer; }
-.git-file-picker-diff { border-top: 1px solid var(--border); max-height: 220px; overflow: auto; background: var(--panel); }
+.git-file.excluded .git-file-path { color: var(--muted); text-decoration: line-through; opacity: 0.6; }
+.git-changes-select-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+.git-changes-select-actions button { font-size: 11px; padding: 2px 8px; }
+.git-changes-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.git-changes-meta .picker-partial { color: #d7ba7d; font-weight: 600; }
 
 /* Row actions overflow menu */
 .action-menu-btn { padding: 6px 10px; font-weight: 700; line-height: 1; }

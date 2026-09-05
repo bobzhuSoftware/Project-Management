@@ -161,6 +161,21 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
   const handleClose = () => onClose(!!result?.success)
 
+  // File-selection state (shared by changes + sync modes). `excluded` holds the
+  // paths the user unchecked; an empty set means "sync everything".
+  const allChangePaths = Array.from(new Set((status?.files ?? []).map(f => f.path)))
+  const includedCount = allChangePaths.filter(pth => !excluded.has(pth)).length
+  const excludedCount = allChangePaths.length - includedCount
+  const toggleExcluded = (pth: string) => {
+    setExcluded(prev => {
+      const next = new Set(prev)
+      if (next.has(pth)) next.delete(pth); else next.add(pth)
+      return next
+    })
+  }
+  const setAllExcluded = (all: boolean) =>
+    setExcluded(all ? new Set(allChangePaths) : new Set())
+
   if (mode === 'pull') {
     const canPull = !!status && status.repo && !status.error && status.behind > 0 && status.conflicting === 0
     const done = !!result?.success
@@ -292,11 +307,23 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
               <span className="muted">Branch:</span> {status.branch ?? '-'}
               <span className="dot"> · </span>
               {files.length} change{files.length === 1 ? '' : 's'}
+              {excludedCount > 0 && (
+                <>
+                  <span className="dot"> · </span>
+                  <span className="picker-partial">syncing {includedCount}, excluding {excludedCount}</span>
+                </>
+              )}
               {showIncoming && (
                 <>
                   <span className="dot"> · </span>
                   <span className="muted">behind:</span> ↓ {status.behind}
                 </>
+              )}
+              {files.length > 0 && (
+                <span className="git-changes-select-actions">
+                  <button type="button" onClick={() => setAllExcluded(false)} disabled={excludedCount === 0}>Select all</button>
+                  <button type="button" onClick={() => setAllExcluded(true)} disabled={includedCount === 0}>Deselect all</button>
+                </span>
               )}
             </div>
           )}
@@ -326,7 +353,10 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
                         {staged.map(f => {
                           const active = selected?.path === f.path && selected?.staged === true
                           return (
-                            <li key={`s:${f.path}`} className={`git-file staged${active ? ' active' : ''}`}>
+                            <li key={`s:${f.path}`} className={`git-file staged${active ? ' active' : ''}${excluded.has(f.path) ? ' excluded' : ''}`}>
+                              <label className="git-file-check" title="Include in sync">
+                                <input type="checkbox" aria-label={`Include ${f.path} in sync`} checked={!excluded.has(f.path)} onChange={() => toggleExcluded(f.path)} />
+                              </label>
                               <button type="button" className="git-file-btn" onClick={() => openDiff(f)}>
                                 <span className={`git-file-tag tag-${f.type.toLowerCase()}`} title={typeLabel(f.type)}>{shortTag(f.type)}</span>
                                 <span className="git-file-path" title={f.path}>{f.path}</span>
@@ -344,7 +374,10 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
                         {working.map(f => {
                           const active = selected?.path === f.path && selected?.staged === false && !selectedIncoming
                           return (
-                            <li key={`w:${f.path}`} className={`git-file unstaged${active ? ' active' : ''}`}>
+                            <li key={`w:${f.path}`} className={`git-file unstaged${active ? ' active' : ''}${excluded.has(f.path) ? ' excluded' : ''}`}>
+                              <label className="git-file-check" title="Include in sync">
+                                <input type="checkbox" aria-label={`Include ${f.path} in sync`} checked={!excluded.has(f.path)} onChange={() => toggleExcluded(f.path)} />
+                              </label>
                               <button type="button" className="git-file-btn" onClick={() => openDiff(f)}>
                                 <span className={`git-file-tag tag-${f.type.toLowerCase()}`} title={typeLabel(f.type)}>{shortTag(f.type)}</span>
                                 <span className="git-file-path" title={f.path}>{f.path}</span>
@@ -448,19 +481,8 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
   }
 
   const syncFiles = status?.files ?? []
-  const syncPaths = Array.from(new Set(syncFiles.map(f => f.path)))
+  const syncPaths = allChangePaths
   const syncUnique = syncPaths.map(pth => syncFiles.find(f => f.path === pth)!)
-  const includedCount = syncPaths.filter(pth => !excluded.has(pth)).length
-  const excludedCount = syncPaths.length - includedCount
-  const toggleExcluded = (pth: string) => {
-    setExcluded(prev => {
-      const next = new Set(prev)
-      if (next.has(pth)) next.delete(pth); else next.add(pth)
-      return next
-    })
-  }
-  const setAllExcluded = (all: boolean) =>
-    setExcluded(all ? new Set(syncPaths) : new Set())
 
   let syncLabel = 'Sync to GitHub'
   if (busy) syncLabel = 'Syncing…'
@@ -531,47 +553,22 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
               {excludedCount === 0
                 ? <span>Syncing all {syncPaths.length} change{syncPaths.length === 1 ? '' : 's'}</span>
                 : <span className="picker-partial">Syncing {includedCount} · excluding {excludedCount}</span>}
+              <span className="git-file-picker-hint">Adjust in “Changes”</span>
             </button>
 
             {pickerOpen && (
-              <div className="git-file-picker-body">
-                <div className="git-file-picker-toolbar">
-                  <button type="button" onClick={() => setAllExcluded(false)} disabled={busy || excludedCount === 0}>Select all</button>
-                  <button type="button" onClick={() => setAllExcluded(true)} disabled={busy || includedCount === 0}>Deselect all</button>
-                </div>
-                <ul className="git-file-picker-list">
-                  {syncUnique.map(f => {
-                    const checked = !excluded.has(f.path)
-                    return (
-                      <li key={f.path} className={`git-file${checked ? '' : ' excluded'}`}>
-                        <label className="git-file-check">
-                          <input type="checkbox" checked={checked} disabled={busy} onChange={() => toggleExcluded(f.path)} />
-                          <span className={`git-file-tag tag-${f.type.toLowerCase()}`} title={typeLabel(f.type)}>{shortTag(f.type)}</span>
-                        </label>
-                        <button type="button" className="git-file-btn" onClick={() => openDiff(f)} title={`View diff — ${f.path}`}>
-                          <span className="git-file-path">{f.path}</span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-                {selected && (
-                  <div className="git-file-picker-diff">
-                    {diffLoading && <div className="empty">Loading diff…</div>}
-                    {diffError && <div className="error-banner">{diffError}</div>}
-                    {!diffLoading && !diffError && (
-                      <>
-                        <div className="git-diff-head" title={selected.path}>{selected.path}</div>
-                        <pre className="git-diff">
-                          {diffText.split('\n').map((line, i) => (
-                            <div key={i} className={diffLineClass(line)}>{line === '' ? ' ' : line}</div>
-                          ))}
-                        </pre>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+              <ul className="git-file-picker-list readonly">
+                {syncUnique.map(f => {
+                  const included = !excluded.has(f.path)
+                  return (
+                    <li key={f.path} className={`git-file${included ? '' : ' excluded'}`}>
+                      <span className={`git-file-tag tag-${f.type.toLowerCase()}`} title={typeLabel(f.type)}>{shortTag(f.type)}</span>
+                      <span className="git-file-path" title={f.path}>{f.path}</span>
+                      {!included && <span className="git-file-excluded-badge">excluded</span>}
+                    </li>
+                  )
+                })}
+              </ul>
             )}
           </div>
         )}
