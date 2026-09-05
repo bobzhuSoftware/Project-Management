@@ -86,6 +86,17 @@ public class GitService {
     }
 
     public GitSyncResultDto sync(String projectId, String commitMessage) {
+        return sync(projectId, commitMessage, null);
+    }
+
+    /**
+     * Commits and pushes local changes. When {@code paths} is null or empty the
+     * whole working tree is committed ({@code git add -A}); otherwise only the
+     * given paths are staged and committed ({@code git add -A -- paths} then
+     * {@code git commit -- paths}), so any other changes — even ones already
+     * staged — are left out of this commit.
+     */
+    public GitSyncResultDto sync(String projectId, String commitMessage, List<String> paths) {
         Project p = projectRepo.findById(projectId)
                 .orElseThrow(() -> new ProjectService.NotFoundException("Project not found: " + projectId));
 
@@ -99,20 +110,28 @@ public class GitService {
         }
 
         List<String> steps = new ArrayList<>();
+
+        // 1. Check whether there is anything to commit
+        GitStatusDto preStatus = computeStatus(p, false);
+        boolean hasChanges = (preStatus.staged + preStatus.modified + preStatus.untracked + preStatus.conflicting) > 0;
+
+        if (preStatus.conflicting > 0) {
+            return GitSyncResultDto.fail(
+                    "Repository has unresolved merge conflicts. Resolve them manually before syncing.",
+                    steps, preStatus);
+        }
+
+        // Restrict the commit to the selected subset when the caller asked for it.
+        boolean partial = paths != null && !paths.isEmpty();
+        List<String> selected = partial ? normalizeSelectedPaths(paths, preStatus) : List.of();
+        if (partial && selected.isEmpty()) {
+            return GitSyncResultDto.fail(
+                    "None of the selected files have changes to commit.", steps, preStatus);
+        }
+
         try {
-            // 1. Check whether there is anything to commit
-            GitStatusDto preStatus = computeStatus(p, false);
-            boolean hasChanges = (preStatus.staged + preStatus.modified + preStatus.untracked + preStatus.conflicting) > 0;
-
-            if (preStatus.conflicting > 0) {
-                return GitSyncResultDto.fail(
-                        "Repository has unresolved merge conflicts. Resolve them manually before syncing.",
-                        steps, preStatus);
-            }
-
             if (hasChanges) {
-                runGit(root, steps, "add", "-A");
-                runGit(root, steps, "commit", "-m", message);
+                stageAndCommit(root, steps, message, partial ? selected : null);
             } else {
                 steps.add("No local changes to commit.");
             }
@@ -596,6 +615,49 @@ public class GitService {
             if (c == '\n' || c == '\t' || c >= 0x20) sb.append(c);
         }
         return sb.toString();
+    }
+
+    /**
+     * Validates the caller-selected paths and keeps only those that actually
+     * have a pending change (so {@code git commit -- path} never fails on a
+     * stale pathspec).
+     */
+    private List<String> normalizeSelectedPaths(List<String> paths, GitStatusDto status) {
+        java.util.Set<String> changed = new java.util.HashSet<>();
+        for (GitFileChange f : status.files) {
+            changed.add(f.path);
+        }
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String raw : paths) {
+            String rel = sanitizeRelPath(raw);
+            if (changed.contains(rel)) {
+                out.add(rel);
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    /**
+     * Stages and commits changes. A null {@code selected} commits the whole
+     * working tree; otherwise only the given paths are staged and committed so
+     * any other change is left out of this commit.
+     */
+    private void stageAndCommit(File root, List<String> steps, String message, List<String> selected)
+            throws GitCommandException {
+        if (selected == null) {
+            runGit(root, steps, "add", "-A");
+            runGit(root, steps, "commit", "-m", message);
+        } else {
+            runGit(root, steps, concat(new String[] {"add", "-A", "--"}, selected));
+            runGit(root, steps, concat(new String[] {"commit", "-m", message, "--"}, selected));
+        }
+    }
+
+    private String[] concat(String[] head, List<String> tail) {
+        List<String> all = new ArrayList<>(head.length + tail.size());
+        java.util.Collections.addAll(all, head);
+        all.addAll(tail);
+        return all.toArray(new String[0]);
     }
 
     private void runGit(File workDir, List<String> steps, String... args) throws GitCommandException {

@@ -44,7 +44,8 @@ public class GitController {
     @PostMapping("/sync")
     public GitSyncResultDto sync(@PathVariable String id, @RequestBody(required = false) SyncRequest body) {
         String message = body != null ? body.message : null;
-        return gitService.sync(id, message);
+        java.util.List<String> paths = body != null ? body.paths : null;
+        return gitService.sync(id, message, paths);
     }
 
     @PostMapping("/pull")
@@ -56,5 +57,7 @@ public class GitController {
     public static class SyncRequest {
         @Size(max = 500)
         public String message;
+        /** Optional subset of paths to include. Null/empty = commit all changes. */
+        public java.util.List<String> paths;
     }
 }
