@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { extractError, gitApi, launchesApi, projectsApi } from './api'
-import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, Reach } from './types'
+import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto } from './types'
 import { ProjectTable } from './components/ProjectTable'
 import { ProjectFormModal } from './components/ProjectFormModal'
 import { LogsDrawer, type LogSource } from './components/LogsDrawer'
 import { GitSyncModal } from './components/GitSyncModal'
 import { SettingsModal } from './components/SettingsModal'
 import { PushControlModal } from './components/PushControlModal'
+import { ShareControlModal } from './components/ShareControlModal'
 import { WifiShareModal } from './components/WifiShareModal'
 import { ShareModal } from './components/ShareModal'
 import { MessageDialog, type DialogState } from './components/MessageDialog'
@@ -40,6 +41,7 @@ export function App() {
   const [sidebarFloating, setSidebarFloating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPushControl, setShowPushControl] = useState(false)
+  const [showShareControl, setShowShareControl] = useState(false)
   const [wifiShare, setWifiShare] = useState<LaunchDto | null>(null)
   const [shareLaunch, setShareLaunch] = useState<LaunchDto | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
@@ -116,25 +118,6 @@ export function App() {
     setBusyId(launch.id)
     try { await launchesApi.stop(launch.id); await refresh(); fetchGitStatus(launch.projectId, true) }
     catch (e) { showError(`Failed to stop: ${launch.name}`, e) }
-    finally { setBusyId(null) }
-  }
-  const handleReachChange = async (launch: LaunchDto, reach: Reach) => {
-    // Internet needs a lifetime choice and shows the generated link — do it in a modal.
-    if (reach === 'INTERNET') { setShareLaunch(launch); return }
-    setBusyId(launch.id)
-    try {
-      await launchesApi.setReach(launch.id, reach)
-      const data = await refresh()
-      // Keep the QR modal in sync with the freshly returned wifiAddress when it's open.
-      if (reach !== 'LOCAL') {
-        const updated = data?.flatMap(p => p.launches ?? []).find(l => l.id === launch.id)
-        if (updated) setWifiShare(updated)
-      } else {
-        setWifiShare(prev => (prev?.id === launch.id ? null : prev))
-      }
-      setShareLaunch(prev => (prev?.id === launch.id ? null : prev))
-    }
-    catch (e) { showError(`Failed to update reach: ${launch.name}`, e) }
     finally { setBusyId(null) }
   }
   const handleShareCreate = async (launch: LaunchDto, ttlMinutes: number | null) => {
@@ -232,6 +215,7 @@ export function App() {
         onCloseFloating={() => setSidebarFloating(false)}
         onOpenSettings={() => setShowSettings(true)}
         onOpenPushControl={() => setShowPushControl(true)}
+        onOpenShareControl={() => setShowShareControl(true)}
       />
       <div className="app-main">
         <div className="header">
@@ -254,7 +238,6 @@ export function App() {
               gitLoading={gitLoading}
               onStart={handleStart}
               onStop={handleStop}
-              onReachChange={handleReachChange}
               onShowWifi={(l) => setWifiShare(l)}
               onShowShare={(l) => setShareLaunch(l)}
               onRunCommand={handleRunCommand}
@@ -305,6 +288,15 @@ export function App() {
           onClose={(changed) => {
             setShowPushControl(false)
             if (changed) { refresh(); refreshAllGit(projects.map(p => p.id), true) }
+          }}
+        />
+      )}
+      {showShareControl && (
+        <ShareControlModal
+          projects={projects}
+          onClose={(changed) => {
+            setShowShareControl(false)
+            if (changed) refresh()
           }}
         />
       )}

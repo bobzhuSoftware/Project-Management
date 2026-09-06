@@ -31,6 +31,7 @@ interface Props {
   onCloseFloating?: () => void
   onOpenSettings?: () => void
   onOpenPushControl?: () => void
+  onOpenShareControl?: () => void
 }
 
 function NavList({
@@ -65,7 +66,7 @@ function NavList({
 
 export function Sidebar(props: Props) {
   const { active, onSelect, projects, mode, floating,
-          onCollapse, onExpandPinned, onOpenFloating, onCloseFloating, onOpenSettings, onOpenPushControl } = props
+          onCollapse, onExpandPinned, onOpenFloating, onCloseFloating, onOpenSettings, onOpenPushControl, onOpenShareControl } = props
 
   const isRail = mode === 'rail'
   const running = projects.filter(p => (p.launches ?? []).some(l => l.status === 'RUNNING' || l.status === 'ATTACHED')).length
@@ -96,6 +97,14 @@ export function Sidebar(props: Props) {
         <div style={{ padding: '8px 4px', borderTop: '1px solid var(--border)' }}>
           <button
             className="sidebar-item"
+            title="Share Control"
+            onClick={onOpenShareControl}
+            style={{ justifyContent: 'center', padding: '8px 0' }}
+          >
+            <span className="sidebar-icon">📡</span>
+          </button>
+          <button
+            className="sidebar-item"
             title="Push Control"
             onClick={onOpenPushControl}
             style={{ justifyContent: 'center', padding: '8px 0' }}
@@ -114,6 +123,14 @@ export function Sidebar(props: Props) {
       ) : (
         <div className="sidebar-footer">
           <div className="muted">Running: <strong>{running}</strong> / {projects.length}</div>
+          <button
+            className="sidebar-item"
+            onClick={onOpenShareControl}
+            style={{ marginTop: 6, width: '100%' }}
+          >
+            <span className="sidebar-icon">📡</span>
+            <span className="sidebar-label">Share Control</span>
+          </button>
           <button
             className="sidebar-item"
             onClick={onOpenPushControl}
@@ -164,6 +181,14 @@ export function Sidebar(props: Props) {
           />
           <div className="sidebar-footer">
             <div className="muted">Running: <strong>{running}</strong> / {projects.length}</div>
+            <button
+              className="sidebar-item"
+              onClick={() => { onOpenShareControl?.(); onCloseFloating?.() }}
+              style={{ marginTop: 6, width: '100%' }}
+            >
+              <span className="sidebar-icon">📡</span>
+              <span className="sidebar-label">Share Control</span>
+            </button>
             <button
               className="sidebar-item"
               onClick={() => { onOpenPushControl?.(); onCloseFloating?.() }}

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, ProjectStatus, Reach } from '../types'
+import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, ProjectStatus } from '../types'
 
 interface Props {
   projects: ProjectDto[]
@@ -8,7 +8,6 @@ interface Props {
   gitLoading: Record<string, boolean>
   onStart: (l: LaunchDto) => void
   onStop: (l: LaunchDto) => void
-  onReachChange: (l: LaunchDto, reach: Reach) => void
   onShowWifi: (l: LaunchDto) => void
   onShowShare: (l: LaunchDto) => void
   onRunCommand: (p: ProjectDto, command: ProjectCommandDto) => void
@@ -37,33 +36,6 @@ function uptime(startedAt?: string | null): string {
 }
 
 interface PortItem { port: number; registered: boolean }
-
-const REACH_OPTIONS: { value: Reach; label: string; title: string }[] = [
-  { value: 'LOCAL', label: 'Local', title: 'localhost only (this machine)' },
-  { value: 'WIFI', label: 'Wi-Fi', title: 'Reachable as <alias>.local on the same Wi-Fi' },
-  { value: 'INTERNET', label: 'Internet', title: 'Exposed via a temporary public link' },
-]
-
-function ReachToggle({ launch, busy, onChange }: { launch: LaunchDto; busy: boolean; onChange: (l: LaunchDto, reach: Reach) => void }): JSX.Element | null {
-  if (!launch.alias) return null
-  const current = launch.reach ?? 'LOCAL'
-  return (
-    <span className="reach-toggle" role="group" aria-label="Reach">
-      {REACH_OPTIONS.map(o => (
-        <button
-          key={o.value}
-          type="button"
-          className={`reach-opt${current === o.value ? ' active' : ''}`}
-          title={o.title}
-          disabled={busy || current === o.value}
-          onClick={(e) => { e.stopPropagation(); onChange(launch, o.value) }}
-        >
-          {o.label}
-        </button>
-      ))}
-    </span>
-  )
-}
 
 function renderAddress(l: LaunchDto): JSX.Element | null {
   if (!l.alias) return null
@@ -219,7 +191,7 @@ function aggregateStatus(p: ProjectDto): ProjectStatus {
   return 'STOPPED'
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onReachChange, onShowWifi, onShowShare, onRunCommand, onOpenCommandLogs, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onShowWifi, onShowShare, onRunCommand, onOpenCommandLogs, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -353,7 +325,6 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                 {single && only && renderAddress(only) && (
                   <div className="name-address">
                     {renderAddress(only)}
-                    <ReachToggle launch={only} busy={onlyBusy} onChange={onReachChange} />
                     {only.reach === 'WIFI' && (
                       <button className="wifi-qr-btn" title="Show phone QR code" onClick={(e) => { e.stopPropagation(); onShowWifi(only) }}>📱</button>
                     )}
@@ -417,7 +388,6 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                     {renderAddress(l) && (
                       <div className="name-address">
                         {renderAddress(l)}
-                        <ReachToggle launch={l} busy={busy} onChange={onReachChange} />
                         {l.reach === 'WIFI' && (
                           <button className="wifi-qr-btn" title="Show phone QR code" onClick={(e) => { e.stopPropagation(); onShowWifi(l) }}>📱</button>
                         )}
