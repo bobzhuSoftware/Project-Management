@@ -410,11 +410,16 @@ public class LocalProxyServer {
     }
 
     /**
-     * Rewrites the request head's Host and (when present) Origin to the upstream's own origin so
-     * dev-server host checks (Vite {@code server.allowedHosts}, webpack, …) and the near-universal
-     * {@code http://localhost:*} / {@code http://127.0.0.1:*} CORS allowlists accept requests that
-     * arrived via {@code <alias>.localhost}, {@code <alias>.local}, or a public tunnel — whose real
-     * Origin ({@code https://….trycloudflare.com} etc.) those apps would otherwise reject.
+     * Rewrites the request head's Host to the upstream's own origin and DROPS the {@code Origin}
+     * header on the loopback leg. Rewriting Host satisfies dev-server host checks (Vite
+     * {@code server.allowedHosts}, webpack, …). Dropping Origin makes the upstream treat the
+     * request as non-CORS (same-origin), so it never rejects requests that arrived via
+     * {@code <alias>.localhost}, {@code <alias>.local}, or a public tunnel — regardless of which
+     * exact origin its CORS allowlist trusts (many apps trust only one, e.g.
+     * {@code http://127.0.0.1:5173}, so rewriting Origin to a guessed {@code 127.0.0.1:<port>}
+     * still failed). The real browser request is same-origin through the proxy, so it needs no
+     * CORS response headers. WebSocket handshakes keep an Origin matching the rewritten Host so
+     * dev-server upgrade origin checks still pass.
      *
      * <p>Also forces {@code Connection: close} on the request sent to the <em>upstream</em> so each
      * upstream exchange is self-contained (the upstream closes after its response, cleanly delimiting
@@ -453,7 +458,9 @@ public class LocalProxyServer {
                 if (colon > 0) {
                     String name = line.substring(0, colon).trim();
                     if (name.equalsIgnoreCase("host")) { out.add("Host: 127.0.0.1:" + port); continue; }
-                    if (name.equalsIgnoreCase("origin")) { out.add("Origin: " + origin); continue; }
+                    // Drop Origin for normal requests (upstream sees non-CORS); keep it, matching
+                    // the rewritten Host, only for WebSocket upgrades so HMR origin checks pass.
+                    if (name.equalsIgnoreCase("origin")) { if (upgrade) out.add("Origin: " + origin); continue; }
                     if (!upgrade && (name.equalsIgnoreCase("connection")
                             || name.equalsIgnoreCase("keep-alive")
                             || name.equalsIgnoreCase("proxy-connection"))) { continue; }
@@ -527,8 +534,8 @@ public class LocalProxyServer {
             upstream.setTcpNoDelay(true);
             OutputStream upOut = upstream.getOutputStream();
             InputStream upIn = upstream.getInputStream();
-            // Present the upstream's own origin as Host + Origin so dev-server host checks and
-            // localhost CORS allowlists accept traffic that came via <alias>.local / a public tunnel.
+            // Rewrite Host to the upstream origin and drop Origin so dev-server host checks pass and
+            // strict server-side CORS allowlists accept traffic via <alias>.localhost/.local/tunnel.
             upOut.write(rewriteHeadForUpstream(head, port));
             forwardRequestBody(clientIn, upOut, head);
             upOut.flush();
