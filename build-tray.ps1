@@ -14,6 +14,19 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Join-Path $scriptRoot 'backend'
 $frontendDir = Join-Path $scriptRoot 'frontend'
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+# Capture the whole build (this script + npm + mvn output) to a timestamped log
+# file while still echoing to the console, so a mid-build failure can be traced.
+$logDir = Join-Path $scriptRoot 'logs\build'
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+$logFile = Join-Path $logDir ("build-tray-{0}.log" -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
+Start-Transcript -Path $logFile -Append | Out-Null
+Write-Host "[log] Writing build log to $logFile"
+
+$buildFailed = $null
+
+try {
+
 # ── Java override (optional) — same mechanism as start-dev.ps1 ────────────────
 $javaHomeFile = Join-Path $scriptRoot '.java-home'
 if (Test-Path $javaHomeFile) {
@@ -52,7 +65,7 @@ if (-not $SkipFrontend) {
 Write-Host "Packaging backend fat jar..."
 Push-Location $backendDir
 try {
-  & mvn -q -DskipTests clean package
+  & mvn -DskipTests clean package
   if ($LASTEXITCODE -ne 0) { throw "Backend package failed" }
 } finally {
   Pop-Location
@@ -70,3 +83,21 @@ Write-Host "   Jar     : $($jar.FullName)"
 Write-Host "   Frontend: $(Join-Path $frontendDir 'dist')"
 Write-Host " Launch with start-tray.cmd"
 Write-Host "==============================================="
+
+}
+catch {
+  $buildFailed = $_
+}
+finally {
+  Stop-Transcript | Out-Null
+}
+
+if ($buildFailed) {
+  Write-Host ""
+  Write-Host "!!! BUILD FAILED: $($buildFailed.Exception.Message)" -ForegroundColor Red
+  Write-Host "    See full log: $logFile" -ForegroundColor Red
+  exit 1
+}
+
+Write-Host ""
+Write-Host "[log] Build log saved to $logFile"
