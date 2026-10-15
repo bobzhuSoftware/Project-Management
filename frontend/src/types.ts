@@ -61,7 +61,13 @@ export interface GitFileChange {
 export interface GitStatusDto {
   repo: boolean
   branch?: string | null
+  detached?: boolean
+  headShort?: string | null
+  defaultBranch?: string | null
   remoteUrl?: string | null
+  hasRemote?: boolean
+  remoteBranchExists?: boolean
+  upstreamName?: string | null
   hasUpstream: boolean
   ahead: number
   behind: number

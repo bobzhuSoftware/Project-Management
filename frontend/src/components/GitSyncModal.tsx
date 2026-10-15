@@ -11,6 +11,16 @@ interface Props {
   onRefresh?: () => void
 }
 
+function branchLabel(s: GitStatusDto): string {
+  return s.detached ? `detached @ ${s.headShort ?? ''}` : (s.branch ?? '-')
+}
+
+function noUpstreamReason(s: GitStatusDto): string {
+  if (s.detached) return 'detached HEAD'
+  if (!s.hasRemote) return 'no remote'
+  return s.remoteBranchExists ? 'not tracking origin/' + s.branch : 'unpublished branch'
+}
+
 function shortTag(t: string): string {
   switch (t) {
     case 'ADDED': return 'A'
@@ -187,7 +197,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
           {status && (
             <div className="git-changes-meta">
-              <span className="muted">Branch:</span> {status.branch ?? '-'}
+              <span className="muted">Branch:</span> {branchLabel(status)}
               <span className="dot"> · </span>
               <span className="muted">Remote:</span> {status.remoteUrl ?? '-'}
               <span className="dot"> · </span>
@@ -304,7 +314,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
           {status && (
             <div className="git-changes-meta">
-              <span className="muted">Branch:</span> {status.branch ?? '-'}
+              <span className="muted">Branch:</span> {branchLabel(status)}
               <span className="dot"> · </span>
               {files.length} change{files.length === 1 ? '' : 's'}
               {excludedCount > 0 && (
@@ -495,7 +505,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
 
         {status && (
           <div className="git-modal-status">
-            <div><span className="muted">Branch:</span> {status.branch ?? '-'}</div>
+            <div><span className="muted">Branch:</span> {branchLabel(status)}</div>
             <div><span className="muted">Remote:</span> {status.remoteUrl ?? '-'}</div>
             <div>
               <span className="muted">Local changes:</span>{' '}
@@ -505,7 +515,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
             <div>
               <span className="muted">vs remote:</span>{' '}
               ahead {status.ahead}, behind {status.behind}
-              {!status.hasUpstream && <span className="muted"> (no upstream)</span>}
+              {!status.hasUpstream && <span className="muted"> ({noUpstreamReason(status)})</span>}
             </div>
             {status.remoteError && (
               <div className="muted" style={{ color: '#c084fc' }}>{status.remoteError}</div>

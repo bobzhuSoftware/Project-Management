@@ -93,7 +93,12 @@ function renderGitBadge(s: GitStatusDto): { cls: string; text: string; title: st
       + (s.behind > 0 ? ` — remote is ${s.behind} commit(s) ahead, pull required` : '')
     return { cls: s.behind > 0 ? 'git-badge warn' : 'git-badge dirty', text, title }
   }
-  if (!s.hasUpstream) return { cls: 'git-badge warn', text: 'no upstream', title: 'Branch has no upstream remote tracking branch' }
+  if (!s.hasUpstream) {
+    if (s.detached) return { cls: 'git-badge warn', text: 'detached HEAD', title: 'HEAD is not on a branch — switch to a branch before syncing' }
+    if (!s.hasRemote) return { cls: 'git-badge none', text: 'no remote', title: 'No "origin" remote is configured' }
+    if (s.remoteBranchExists) return { cls: 'git-badge warn', text: 'not tracking', title: `origin/${s.branch} exists, but this branch is not set to track it` }
+    return { cls: 'git-badge warn', text: 'unpublished', title: `Branch "${s.branch}" exists only locally — it has not been pushed to origin yet` }
+  }
   if (s.behind > 0 && s.ahead > 0) return { cls: 'git-badge warn', text: `↕ ${s.ahead}/${s.behind}`, title: `${s.ahead} ahead, ${s.behind} behind — pull then push` }
   if (s.behind > 0) return { cls: 'git-badge warn', text: `↓ ${s.behind} behind`, title: `Remote has ${s.behind} new commit(s) — pull required` }
   if (s.ahead > 0) return { cls: 'git-badge ahead', text: `↑ ${s.ahead} to push`, title: `${s.ahead} local commit(s) not yet pushed` }
@@ -127,8 +132,15 @@ function renderGit(
   // No local changes but behind remote: make the badge clickable so the user can
   // open the pull view and fast-forward from there.
   const behindOnly = !hasChanges && status.repo && !status.error && status.behind > 0
+  const branchText = status.detached ? `detached @ ${status.headShort ?? ''}` : status.branch
+  const offDefault = !!status.detached || (!!status.defaultBranch && status.branch !== status.defaultBranch)
   return (
     <span className="git-cell">
+      {status.repo && !status.error && branchText && (
+        <span className={`git-branch${offDefault ? ' other' : ''}`} title={`Current branch: ${branchText}`}>
+          ⎇ {branchText}
+        </span>
+      )}
       {status.repo && !p.pushEnabled && (
         <span
           className="git-push-disabled"

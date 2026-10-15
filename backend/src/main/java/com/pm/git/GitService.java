@@ -8,6 +8,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.lib.BranchTrackingStatus;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.springframework.stereotype.Service;
@@ -529,8 +531,8 @@ public class GitService {
 
             GitStatusDto dto = new GitStatusDto();
             dto.repo = true;
-            dto.branch = repo.getBranch();
             dto.remoteUrl = repo.getConfig().getString("remote", "origin", "url");
+            dto.hasRemote = dto.remoteUrl != null;
             dto.checkedAt = Instant.now();
 
             Status st = git.status().call();
@@ -549,6 +551,14 @@ public class GitService {
 
             String fullBranch = repo.getFullBranch();
             boolean onBranch = fullBranch != null && fullBranch.startsWith("refs/heads/");
+            dto.detached = !onBranch;
+            // For a detached HEAD getBranch() returns the commit SHA, which is not a branch name.
+            dto.branch = onBranch ? repo.getBranch() : null;
+            if (dto.detached) {
+                ObjectId head = repo.resolve("HEAD");
+                dto.headShort = head != null ? head.abbreviate(7).name() : null;
+            }
+            dto.defaultBranch = detectDefaultBranch(repo);
 
             // Verify against the real remote so `behind` reflects reality instead of
             // a stale local tracking ref. Runs `git fetch` which updates the cached
@@ -565,9 +575,11 @@ public class GitService {
             }
 
             if (onBranch) {
+                dto.remoteBranchExists = repo.exactRef("refs/remotes/origin/" + dto.branch) != null;
                 BranchTrackingStatus tracking = BranchTrackingStatus.of(repo, dto.branch);
                 if (tracking != null) {
                     dto.hasUpstream = true;
+                    dto.upstreamName = Repository.shortenRefName(tracking.getRemoteTrackingBranch());
                     dto.ahead = tracking.getAheadCount();
                     dto.behind = tracking.getBehindCount();
                 } else {
@@ -582,6 +594,22 @@ public class GitService {
             log.warn("git status failed for project {}: {}", p.getName(), e.toString());
             return GitStatusDto.error("Failed to read git status: " + e.getMessage());
         }
+    }
+
+    /** origin's default branch when known, else main/master if one exists, else null. */
+    private String detectDefaultBranch(Repository repo) throws IOException {
+        Ref originHead = repo.exactRef("refs/remotes/origin/HEAD");
+        if (originHead != null && originHead.isSymbolic()) {
+            String target = Repository.shortenRefName(originHead.getTarget().getName());
+            return target.startsWith("origin/") ? target.substring("origin/".length()) : target;
+        }
+        for (String name : new String[] {"main", "master"}) {
+            if (repo.exactRef("refs/heads/" + name) != null
+                    || repo.exactRef("refs/remotes/origin/" + name) != null) {
+                return name;
+            }
+        }
+        return null;
     }
 
     /** Runs {@code git fetch --prune}, discarding its step output. */
