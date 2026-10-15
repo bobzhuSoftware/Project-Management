@@ -8,6 +8,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.util.UUID;
 
@@ -43,6 +44,7 @@ public class ProjectCommand {
      * streams its output to the logs (like a launch) instead of blocking synchronously on a timeout.
      */
     @Column(name = "script", nullable = false)
+    @ColumnDefault("false")
     @Builder.Default
     private boolean script = false;
 

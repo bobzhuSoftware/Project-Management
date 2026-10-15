@@ -14,6 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -46,6 +47,7 @@ public class Launch {
     /** How far the named address reaches (Rung 2/3). Default LOCAL = localhost only. */
     @Enumerated(EnumType.STRING)
     @Column(name = "reach", length = 16, nullable = false)
+    @ColumnDefault("'LOCAL'")
     @Builder.Default
     private Reach reach = Reach.LOCAL;
 
