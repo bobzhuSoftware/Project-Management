@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { GitStatusDto, LaunchDto, ProjectCommandDto, ProjectDto, ProjectStatus } from '../types'
+import { BuildBadge } from './BuildBadge'
 
 interface Props {
   projects: ProjectDto[]
@@ -10,7 +11,9 @@ interface Props {
   onStop: (l: LaunchDto) => void
   onShowWifi: (l: LaunchDto) => void
   onShowShare: (l: LaunchDto) => void
+  onShowBuilds: (p: ProjectDto, l: LaunchDto) => void
   onRunCommand: (p: ProjectDto, command: ProjectCommandDto) => void
+  onStopCommand: (p: ProjectDto, command: ProjectCommandDto) => void
   onOpenCommandLogs: (p: ProjectDto, command: ProjectCommandDto) => void
   onEdit: (p: ProjectDto) => void
   onDelete: (p: ProjectDto) => void
@@ -203,7 +206,7 @@ function aggregateStatus(p: ProjectDto): ProjectStatus {
   return 'STOPPED'
 }
 
-export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onShowWifi, onShowShare, onRunCommand, onOpenCommandLogs, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
+export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart, onStop, onShowWifi, onShowShare, onShowBuilds, onRunCommand, onStopCommand, onOpenCommandLogs, onEdit, onDelete, onLogs, onSync, onShowPull, onShowChanges, onGitRefresh, onReorder, onOpenFolder }: Props) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -334,6 +337,9 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                   {!single && <span className="launch-count" title="Number of launches">{launches.length} launches</span>}
                 </div>
                 {p.description && <div className="muted name-desc">{p.description}</div>}
+                {single && only?.build && (
+                  <div className="name-build"><BuildBadge launch={only} onClick={(l) => onShowBuilds(p, l)} /></div>
+                )}
                 {single && only && renderAddress(only) && (
                   <div className="name-address">
                     {renderAddress(only)}
@@ -377,11 +383,10 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                 <button disabled={projBusy} onClick={() => onEdit(p)}>Edit</button>
                 <button
                   className={`action-menu-btn${menuFor?.id === p.id ? ' open' : ''}`}
-                  disabled={projBusy}
-                  title="More actions"
+                  title={(p.commands ?? []).some(c => c.running) ? 'More actions — a command is running' : 'More actions'}
                   onClick={(e) => openMenu(e, p.id)}
                 >
-                  ⋯
+                  ⋯{(p.commands ?? []).some(c => c.running) && <span className="cmd-running-dot" />}
                 </button>
               </td>
               <td className="row-spacer"></td>
@@ -397,6 +402,11 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
                   <td className="launch-name-cell">
                     <span className="launch-branch">↳</span>
                     <span className="launch-name">{l.name}</span>
+                    {l.build && (
+                      <span style={{ marginLeft: 8 }}>
+                        <BuildBadge launch={l} onClick={(launch) => onShowBuilds(p, launch)} />
+                      </span>
+                    )}
                     {renderAddress(l) && (
                       <div className="name-address">
                         {renderAddress(l)}
@@ -436,17 +446,38 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
       const p = projects.find(x => x.id === menuFor.id)
       if (!p) return null
       const anyRunning = (p.launches ?? []).some(l => l.status === 'RUNNING' || l.status === 'ATTACHED')
+      const anyCommandRunning = (p.commands ?? []).some(c => c.running)
+      const menuBusy = busyId === p.id
       const run = (fn: () => void) => { closeMenu(); fn() }
       return (
         <>
           <div className="action-menu-backdrop" onClick={closeMenu} />
           <div className="action-menu" style={{ top: menuFor.y + 4, left: menuFor.x - 150 }}>
             {(p.commands ?? []).map(cmd => (
-              cmd.script ? (
+              cmd.running ? (
+                <div key={cmd.id} className="action-menu-cmd-row">
+                  <button
+                    className="action-menu-cmd-run danger-text"
+                    title={`Stop ${cmd.name} (kills its process tree)`}
+                    onClick={() => run(() => onStopCommand(p, cmd))}
+                  >
+                    <span className="cmd-running-dot" /> ■ Stop {cmd.name}
+                  </button>
+                  {cmd.script && (
+                    <button
+                      className="action-menu-cmd-logs"
+                      title={`View logs: ${cmd.name}`}
+                      onClick={() => run(() => onOpenCommandLogs(p, cmd))}
+                    >
+                      📄
+                    </button>
+                  )}
+                </div>
+              ) : cmd.script ? (
                 <div key={cmd.id} className="action-menu-cmd-row">
                   <button
                     className="action-menu-cmd-run"
-                    disabled={cmd.requireStopped && anyRunning}
+                    disabled={menuBusy || (cmd.requireStopped && anyRunning)}
                     title={cmd.requireStopped && anyRunning
                       ? 'Stop all launches before running this command'
                       : `Run in background (logs): ${cmd.command}`}
@@ -465,7 +496,7 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
               ) : (
                 <button
                   key={cmd.id}
-                  disabled={cmd.requireStopped && anyRunning}
+                  disabled={menuBusy || (cmd.requireStopped && anyRunning)}
                   title={cmd.requireStopped && anyRunning
                     ? 'Stop all launches before running this command'
                     : `Run: ${cmd.command}`}
@@ -477,7 +508,7 @@ export function ProjectTable({ projects, busyId, gitStatus, gitLoading, onStart,
             ))}
             <button
               className="danger-text"
-              disabled={anyRunning}
+              disabled={anyRunning || anyCommandRunning || menuBusy}
               onClick={() => run(() => onDelete(p))}
             >
               Delete

@@ -32,6 +32,7 @@ interface CommandForm {
   requireStopped: boolean
   script: boolean
   timeoutSeconds: string
+  buildForLaunchId: string
 }
 
 const newUid = () =>
@@ -78,6 +79,7 @@ function initCommands(project: ProjectDto | null): CommandForm[] {
       requireStopped: c.requireStopped,
       script: c.script,
       timeoutSeconds: c.timeoutSeconds != null ? String(c.timeoutSeconds) : '',
+      buildForLaunchId: c.buildForLaunchId ?? '',
     }))
   }
   return []
@@ -124,7 +126,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
     setCommands(cs => cs.map((c, i) => (i === idx ? { ...c, ...patch } : c)))
   const addCommand = () => {
     const uid = newUid()
-    setCommands(cs => [...cs, { uid, name: '', command: '', requireStopped: false, script: false, timeoutSeconds: '' }])
+    setCommands(cs => [...cs, { uid, name: '', command: '', requireStopped: false, script: false, timeoutSeconds: '', buildForLaunchId: '' }])
     setCmdExpanded(prev => new Set(prev).add(uid))
   }
   const removeCommand = (idx: number) =>
@@ -175,6 +177,7 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
           requireStopped: c.requireStopped,
           script: c.script,
           timeoutSeconds,
+          buildForLaunchId: launches.some(l => l.id && l.id === c.buildForLaunchId) ? c.buildForLaunchId : null,
         }
       })
       const payload = {
@@ -386,16 +389,35 @@ export function ProjectFormModal({ project, defaultCategory, onClose }: Props) {
                           onChange={e => updateCommand(i, { script: e.target.checked })}
                           style={{ width: 'auto' }}
                         />
-                        Script (run in background, stream output to logs — no timeout; use for long builds like build-prod.cmd)
+                        Script (run in background, stream output to logs, can be stopped any time; use for long builds like build-prod.cmd)
                       </label>
-                      <label className="launch-field-label">Timeout seconds (optional, default 120)</label>
+                      <label className="launch-field-label">Builds for launch</label>
+                      <select
+                        value={launches.some(l => l.id && l.id === c.buildForLaunchId) ? c.buildForLaunchId : ''}
+                        onChange={e => updateCommand(i, { buildForLaunchId: e.target.value })}
+                      >
+                        <option value="">— (not a build command)</option>
+                        {launches.filter(l => l.id).map(l => (
+                          <option key={l.id} value={l.id}>{l.name || 'Untitled launch'}</option>
+                        ))}
+                      </select>
+                      <div className="launches-editor-hint muted">
+                        {c.buildForLaunchId
+                          ? 'Running this command is recorded as a build of that launch, so PM can tell when it needs rebuilding.'
+                          : 'Pick a launch to track builds and flag it when new commits need a rebuild.'}
+                        {launches.some(l => !l.id) && ' Newly added launches can be chosen after saving.'}
+                      </div>
+                      <label className="launch-field-label">
+                        {c.script
+                          ? 'Max run time seconds (optional, blank = unlimited)'
+                          : 'Timeout seconds (optional, default 120)'}
+                      </label>
                       <input
                         className="mono"
                         value={c.timeoutSeconds}
                         onChange={e => updateCommand(i, { timeoutSeconds: e.target.value })}
-                        placeholder="e.g. 300"
-                        disabled={c.script}
-                        title={c.script ? 'Not used for script commands (they run without a timeout)' : undefined}
+                        placeholder={c.script ? 'e.g. 1800' : 'e.g. 300'}
+                        title={c.script ? 'The script is killed (with its child processes) after this many seconds' : undefined}
                       />
                     </div>
                   )}

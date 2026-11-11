@@ -15,4 +15,6 @@ public class ProjectCommandRequest {
     public Boolean requireStopped;
     public Boolean script;
     public Integer timeoutSeconds;
+    /** Id of a saved launch of the same project that this command builds; null/blank = not a build command. */
+    public String buildForLaunchId;
 }

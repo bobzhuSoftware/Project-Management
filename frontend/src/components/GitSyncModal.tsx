@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { GitFileChange, GitStatusDto, GitSyncResultDto, ProjectDto } from '../types'
+import type { GitFileChange, GitStatusDto, GitSyncResultDto, LaunchDto, ProjectCommandDto, ProjectDto } from '../types'
 import { extractError, gitApi } from '../api'
 
 interface Props {
@@ -9,6 +9,12 @@ interface Props {
   onClose: (changed: boolean) => void
   onGoSync?: () => void
   onRefresh?: () => void
+  /** Called after a successful pull so the caller can reload project data (e.g. build freshness). */
+  onPulled?: () => void
+  /** Launches whose build is out of date, with the commands that rebuild them. */
+  staleBuilds?: { launch: LaunchDto; commands: ProjectCommandDto[] }[]
+  buildsBusy?: boolean
+  onRunBuild?: (command: ProjectCommandDto) => void
 }
 
 function branchLabel(s: GitStatusDto): string {
@@ -56,7 +62,7 @@ function diffLineClass(line: string): string {
   return 'diff-ctx'
 }
 
-export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync, onRefresh }: Readonly<Props>) {
+export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync, onRefresh, onPulled, staleBuilds = [], buildsBusy = false, onRunBuild }: Readonly<Props>) {
   const [message, setMessage] = useState('chore: sync from Project Management')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<GitSyncResultDto | null>(null)
@@ -151,6 +157,7 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
       setResult(r)
       if (!r.success) setError(r.message ?? 'Pull failed')
       if (onRefresh) onRefresh()
+      if (r.success && onPulled) onPulled()
     } catch (e) {
       setError(extractError(e))
     } finally {
@@ -271,6 +278,33 @@ export function GitSyncModal({ project, status, mode = 'sync', onClose, onGoSync
             </div>
           )}
           {error && <div className="error-banner">{error}</div>}
+
+          {done && staleBuilds.length > 0 && (
+            <div className="git-sync-output build-hint">
+              <span>Code updated. These launches need a rebuild:</span>
+              {staleBuilds.map(({ launch, commands }) => (
+                <span key={launch.id} className="build-hint-item">
+                  <strong>{launch.name}</strong>
+                  {commands.map(cmd => {
+                    const anyRunning = (project.launches ?? []).some(l => l.status === 'RUNNING' || l.status === 'ATTACHED')
+                    const blocked = cmd.requireStopped && anyRunning
+                    return (
+                      <button
+                        key={cmd.id}
+                        className="primary"
+                        style={{ marginLeft: 6 }}
+                        disabled={buildsBusy || blocked}
+                        title={blocked ? 'Stop all launches before running this command' : `Run: ${cmd.command}`}
+                        onClick={() => onRunBuild?.(cmd)}
+                      >
+                        Run {cmd.name}
+                      </button>
+                    )
+                  })}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="form-actions">
             <button onClick={handleClose} disabled={busy}>Close</button>

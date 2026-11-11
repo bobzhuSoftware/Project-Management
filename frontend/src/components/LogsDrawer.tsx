@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { logSourceApi, type LogFileEntry, type LogKind } from '../api'
+import type { ProjectCommandDto } from '../types'
 
 export interface LogSource {
   id: string
@@ -11,10 +12,16 @@ export interface LogSource {
 interface Props {
   source: LogSource
   projectName: string
+  /** Live state of the command being viewed (kind === 'command'); drives the status line and Stop button. */
+  command?: ProjectCommandDto | null
+  onStopCommand?: (command: ProjectCommandDto) => void
   onClose: () => void
 }
 
 type Tab = 'live' | 'history'
+
+/** Without output for this long a running command is flagged as possibly stuck. */
+const IDLE_WARN_MS = 2 * 60 * 1000
 
 function formatSize(n: number): string {
   if (n < 1024) return `${n} B`
@@ -22,7 +29,15 @@ function formatSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-export function LogsDrawer({ source, projectName, onClose }: Props) {
+function formatSpan(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${s % 60}s`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+export function LogsDrawer({ source, projectName, command, onStopCommand, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('live')
   const [lines, setLines] = useState<string[]>([])
   const [paused, setPaused] = useState(false)
@@ -30,10 +45,20 @@ export function LogsDrawer({ source, projectName, onClose }: Props) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [historyContent, setHistoryContent] = useState<string>('')
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const paneRef = useRef<HTMLDivElement>(null)
   const pausedRef = useRef(false)
 
+  const running = !!command?.running
+
   useEffect(() => { pausedRef.current = paused }, [paused])
+
+  // Tick once a second while a command runs so elapsed / idle times stay current.
+  useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [running])
 
   // Live SSE — only active on 'live' tab.
   useEffect(() => {
@@ -78,6 +103,9 @@ export function LogsDrawer({ source, projectName, onClose }: Props) {
     navigator.clipboard.writeText(text).catch(() => {})
   }
 
+  const idleMs = running && command?.lastOutputAt ? now - new Date(command.lastOutputAt).getTime() : 0
+  const maybeStuck = idleMs >= IDLE_WARN_MS
+
   return (
     <>
       <div className="drawer-backdrop" onClick={onClose} />
@@ -85,9 +113,15 @@ export function LogsDrawer({ source, projectName, onClose }: Props) {
         <div className="drawer-header">
           <h3>Logs — {projectName} / {source.name} {source.pid ? `(pid ${source.pid})` : ''}</h3>
           <div className="actions">
+            {running && command && onStopCommand && (
+              <button className="danger" onClick={() => onStopCommand(command)}
+                title="Kill this command and all of its child processes">■ Stop</button>
+            )}
             {tab === 'live' && (
               <>
-                <button onClick={() => setPaused(p => !p)}>{paused ? 'Resume' : 'Pause'}</button>
+                <button onClick={() => setPaused(p => !p)} title="Freeze / resume auto-scroll of the log pane">
+                  {paused ? 'Resume scroll' : 'Pause scroll'}
+                </button>
                 <button onClick={() => setLines([])}>Clear</button>
               </>
             )}
@@ -98,6 +132,18 @@ export function LogsDrawer({ source, projectName, onClose }: Props) {
             <button onClick={onClose}>Close</button>
           </div>
         </div>
+        {source.kind === 'command' && command && (
+          <div className={`drawer-status${maybeStuck ? ' warn' : ''}`}>
+            {running
+              ? <>
+                  <span className="cmd-running-dot" /> Running
+                  {command.startedAt && ` · ${formatSpan(now - new Date(command.startedAt).getTime())}`}
+                  {command.lastOutputAt && ` · last output ${formatSpan(idleMs)} ago`}
+                  {maybeStuck && ' — no output for a while, it may be stuck. Use Stop to kill it.'}
+                </>
+              : 'Not running'}
+          </div>
+        )}
         <div className="drawer-tabs">
           <button
             className={tab === 'live' ? 'tab active' : 'tab'}

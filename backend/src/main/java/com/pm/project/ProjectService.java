@@ -1,5 +1,11 @@
 package com.pm.project;
 
+import com.pm.build.BuildFreshnessDto;
+import com.pm.build.BuildRecordService;
+import com.pm.build.BuildStatus;
+import com.pm.process.CommandCancelledException;
+import com.pm.process.CommandFailedException;
+import com.pm.process.CommandTimeoutException;
 import com.pm.process.ProcessSupervisor;
 import com.pm.git.GitService;
 import com.pm.process.RuntimeStateRepository;
@@ -40,6 +46,7 @@ public class ProjectService {
     private final GitService gitService;
     private final LocalProxyServer proxy;
     private final TunnelManager tunnels;
+    private final BuildRecordService builds;
 
     // No @Transactional: enriching each launch spawns PowerShell (port detection),
     // which must not run while a DB connection is held (it would exhaust the pool on
@@ -102,10 +109,10 @@ public class ProjectService {
         }
         commandRepo.deleteByProjectId(id);
         launchRepo.deleteByProjectId(id);
+        builds.deleteByProjectId(id);
         repo.delete(p);
     }
 
-    @Transactional(readOnly = true)
     public String runCommand(String projectId, String commandId) {
         Project p = repo.findById(projectId)
                 .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
@@ -120,11 +127,65 @@ public class ProjectService {
                 }
             }
         }
+        if (cmd.getBuildForLaunchId() == null) {
+            if (cmd.isScript()) {
+                supervisor.runCommandAsync(p, cmd, null);
+                return "";
+            }
+            return supervisor.runCommand(p, cmd);
+        }
+        return runBuildCommand(p, cmd);
+    }
+
+    /** Runs a command linked to a launch, recording the run (HEAD at start, outcome, exit code). */
+    private String runBuildCommand(Project p, ProjectCommand cmd) {
+        // Reject a duplicate run up front so it doesn't leave a bogus record behind.
+        if (supervisor.isCommandRunning(cmd.getId())) {
+            throw new IllegalStateException("Command '" + cmd.getName() + "' is already running.");
+        }
         if (cmd.isScript()) {
-            supervisor.runCommandAsync(p, cmd);
+            String recordId = builds.begin(p, cmd);
+            try {
+                supervisor.runCommandAsync(p, cmd, exit -> builds.finish(
+                        recordId, statusOf(exit), exit.exitCode()));
+            } catch (RuntimeException e) {
+                builds.finish(recordId, BuildStatus.FAILED, null);
+                throw e;
+            }
             return "";
         }
-        return supervisor.runCommand(p, cmd);
+        String recordId = builds.begin(p, cmd);
+        try {
+            String output = supervisor.runCommand(p, cmd);
+            builds.finish(recordId, BuildStatus.SUCCESS, 0);
+            return output;
+        } catch (CommandFailedException e) {
+            builds.finish(recordId, BuildStatus.FAILED, e.getExitCode());
+            throw e;
+        } catch (CommandCancelledException e) {
+            builds.finish(recordId, BuildStatus.CANCELLED, null);
+            throw e;
+        } catch (CommandTimeoutException e) {
+            builds.finish(recordId, BuildStatus.TIMED_OUT, null);
+            throw e;
+        } catch (RuntimeException e) {
+            builds.finish(recordId, BuildStatus.FAILED, null);
+            throw e;
+        }
+    }
+
+    private static BuildStatus statusOf(ProcessSupervisor.CommandExit exit) {
+        if (exit.cancelled()) return BuildStatus.CANCELLED;
+        if (exit.timedOut()) return BuildStatus.TIMED_OUT;
+        return exit.exitCode() == 0 ? BuildStatus.SUCCESS : BuildStatus.FAILED;
+    }
+
+    /** Stops a running command (script or synchronous) of the project; returns whether anything was running. */
+    public boolean stopCommand(String projectId, String commandId) {
+        commandRepo.findById(commandId)
+                .filter(c -> c.getProjectId().equals(projectId))
+                .orElseThrow(() -> new NotFoundException("Command not found: " + commandId));
+        return supervisor.stopCommand(commandId);
     }
 
     @Transactional
@@ -237,6 +298,14 @@ public class ProjectService {
                 throw new IllegalStateException("Stop launch '" + old.getName() + "' before removing it.");
             }
             runtimeRepo.findById(old.getId()).ifPresent(runtimeRepo::delete);
+            // Commands that built this launch no longer have a target; their history goes with it.
+            for (ProjectCommand c : commandRepo.findByProjectIdOrderBySortOrderAsc(projectId)) {
+                if (old.getId().equals(c.getBuildForLaunchId())) {
+                    c.setBuildForLaunchId(null);
+                    commandRepo.save(c);
+                }
+            }
+            builds.deleteByLaunchId(old.getId());
             launchRepo.delete(old);
         }
     }
@@ -247,9 +316,19 @@ public class ProjectService {
         Map<String, ProjectCommand> existing = commandRepo.findByProjectIdOrderBySortOrderAsc(projectId).stream()
                 .collect(Collectors.toMap(ProjectCommand::getId, Function.identity()));
         Set<String> keep = new HashSet<>();
+        Set<String> projectLaunchIds = launchRepo.findByProjectIdOrderBySortOrderAsc(projectId).stream()
+                .map(Launch::getId)
+                .collect(Collectors.toSet());
 
         for (int i = 0; i < list.size(); i++) {
             ProjectCommandRequest cr = list.get(i);
+            String buildFor = cr.buildForLaunchId != null && !cr.buildForLaunchId.isBlank()
+                    ? cr.buildForLaunchId.trim()
+                    : null;
+            if (buildFor != null && !projectLaunchIds.contains(buildFor)) {
+                throw new IllegalArgumentException(
+                        "Command '" + cr.name.trim() + "' builds a launch that does not belong to this project.");
+            }
             ProjectCommand cmd;
             if (cr.id != null && !cr.id.isBlank() && existing.containsKey(cr.id)) {
                 cmd = existing.get(cr.id);
@@ -262,6 +341,7 @@ public class ProjectService {
             cmd.setRequireStopped(cr.requireStopped != null && cr.requireStopped);
             cmd.setScript(cr.script != null && cr.script);
             cmd.setTimeoutSeconds(cr.timeoutSeconds != null && cr.timeoutSeconds > 0 ? cr.timeoutSeconds : null);
+            cmd.setBuildForLaunchId(buildFor);
             cmd.setSortOrder(i);
             commandRepo.save(cmd);
             keep.add(cmd.getId());
@@ -275,11 +355,19 @@ public class ProjectService {
     }
 
     private ProjectResponse toResponse(Project p) {
-        List<LaunchResponse> launches = launchRepo.findByProjectIdOrderBySortOrderAsc(p.getId()).stream()
-                .map(this::toLaunchResponse)
+        List<Launch> launchEntities = launchRepo.findByProjectIdOrderBySortOrderAsc(p.getId());
+        List<ProjectCommand> commandEntities = commandRepo.findByProjectIdOrderBySortOrderAsc(p.getId());
+        Map<String, BuildFreshnessDto> freshness = builds.freshness(
+                p, launchEntities, commandEntities, supervisor::isCommandRunning);
+        List<LaunchResponse> launches = launchEntities.stream()
+                .map(l -> {
+                    LaunchResponse r = toLaunchResponse(l);
+                    r.build = freshness.get(l.getId());
+                    return r;
+                })
                 .toList();
-        List<ProjectCommandResponse> commands = commandRepo.findByProjectIdOrderBySortOrderAsc(p.getId()).stream()
-                .map(ProjectCommandResponse::from)
+        List<ProjectCommandResponse> commands = commandEntities.stream()
+                .map(c -> ProjectCommandResponse.from(c, supervisor.commandRunState(c.getId()).orElse(null)))
                 .toList();
         return ProjectResponse.from(p, launches, commands);
     }

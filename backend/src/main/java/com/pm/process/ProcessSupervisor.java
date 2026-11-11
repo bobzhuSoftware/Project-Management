@@ -17,22 +17,54 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /** Central registry of live managed processes; handles start/stop and cross-restart re-attach. */
 @Slf4j
 @Service
 public class ProcessSupervisor {
 
+    /** How a script command ended; lets callers tell a failed build from a stopped or timed-out one. */
+    public record CommandExit(int exitCode, boolean cancelled, boolean timedOut) {}
+
+    /** Snapshot of a running command. {@code lastOutputAt} is null for synchronous commands (no live output). */
+    public record CommandRunState(Instant startedAt, Instant lastOutputAt) {}
+
+    /** A synchronous (non-script) command in flight, tracked so it can be cancelled from another request. */
+    private static final class SyncRun {
+        final Process process;
+        final Instant startedAt = Instant.now();
+        volatile boolean cancelled;
+
+        SyncRun(Process process) {
+            this.process = process;
+        }
+    }
+
+    private static final File NULL_DEVICE = new File("NUL");
+
     private final RuntimeStateRepository runtimeRepo;
     private final ProjectRepository projectRepo;
     private final AppSettingsRepository settingsRepo;
     private final ConcurrentHashMap<String, ManagedProcess> live = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SyncRun> syncRuns = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "pm-command-watchdog");
+        t.setDaemon(true);
+        return t;
+    });
+    /** Set once the JVM starts cascade-killing children, so their forced exits aren't reported as results. */
+    private volatile boolean jvmShuttingDown = false;
 
     @Value("${pm.logs.dir}")
     private String logsDir;
@@ -69,12 +101,14 @@ public class ProcessSupervisor {
         // Always runs on context close (including DevTools restart). Only release
         // our own resources; do NOT kill child projects here.
         log.info("Context close: detaching {} live process(es) — children keep running", live.size());
+        watchdog.shutdownNow();
         live.values().forEach(ManagedProcess::close);
         live.clear();
     }
 
     /** Runs on JVM shutdown only. Safe to assume Spring beans may already be closed. */
     private void cascadeKillOnJvmExit() {
+        jvmShuttingDown = true;
         try {
             java.util.Set<Long> pidsToKill = new java.util.HashSet<>();
             for (ManagedProcess mp : live.values()) {
@@ -175,14 +209,7 @@ public class ProcessSupervisor {
         // 2) Destroy process tree via ProcessHandle.
         Long pid = mp != null ? mp.getPid() : stateOpt.map(RuntimeStateEntity::getPid).orElse(null);
         if (pid != null) {
-            ProcessHandle.of(pid).ifPresent(h -> {
-                h.descendants().forEach(d -> {
-                    log.debug("destroyForcibly descendant pid={}", d.pid());
-                    d.destroyForcibly();
-                });
-                log.debug("destroyForcibly root pid={}", h.pid());
-                h.destroyForcibly();
-            });
+            killTree(pid);
         }
 
         // 3) Belt-and-braces: kill anything still listening on declared ports.
@@ -204,10 +231,16 @@ public class ProcessSupervisor {
      * Run one of the project's maintenance commands synchronously. When the command requires it,
      * the caller must ensure no launch of this project is running so build artifacts
      * (target/, node_modules, ...) are not locked. Returns the combined stdout/stderr.
+     * Deliberately not {@code synchronized}: a long command must not block start/stop of other
+     * launches. It is tracked in {@link #syncRuns} so {@link #stopCommand} can cancel it, and a
+     * timeout kills the whole process tree rather than just the PowerShell wrapper.
      */
-    public synchronized String runCommand(Project project, ProjectCommand command) {
+    public String runCommand(Project project, ProjectCommand command) {
         if (command.getCommand() == null || command.getCommand().isBlank()) {
             throw new IllegalStateException("No command configured for: " + command.getName());
+        }
+        if (isCommandRunning(command.getId())) {
+            throw new IllegalStateException("Command '" + command.getName() + "' is already running.");
         }
 
         File workDir = new File(project.getRootDirectory());
@@ -219,26 +252,26 @@ public class ProcessSupervisor {
                 ? command.getTimeoutSeconds()
                 : 120;
 
-        ProcessBuilder pb = new ProcessBuilder(
-                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " +
-                "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                "& cmd.exe /c '" + escapeForPowerShell(command.getCommand()) + "'");
-        pb.directory(workDir);
-        pb.redirectErrorStream(true);
-        applyUtf8AndNoColorEnv(pb);
-        applyConfiguredJavaHome(pb);
-        applyConfiguredNodeHome(pb);
+        ProcessBuilder pb = commandProcessBuilder(command, workDir);
 
+        SyncRun run = null;
         try {
             Process p = pb.start();
+            run = new SyncRun(p);
+            if (syncRuns.putIfAbsent(command.getId(), run) != null) {
+                killTree(p.pid());
+                throw new IllegalStateException("Command '" + command.getName() + "' is already running.");
+            }
             java.util.concurrent.CompletableFuture<String> outputFuture = readAllAsync(p.getInputStream());
             boolean finished = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
-                p.destroyForcibly();
-                throw new IllegalStateException(
+                killTree(p.pid());
+                throw new CommandTimeoutException(
                         "Command '" + command.getName() + "' timed out after " + timeoutSeconds + "s for: " + project.getName());
+            }
+            if (run.cancelled) {
+                throw new CommandCancelledException(
+                        "Command '" + command.getName() + "' was stopped for: " + project.getName());
             }
             String output;
             try {
@@ -248,8 +281,8 @@ public class ProcessSupervisor {
             }
             int exit = p.exitValue();
             if (exit != 0) {
-                throw new IllegalStateException(
-                        "Command '" + command.getName() + "' failed (exit " + exit + "):\n" + output);
+                throw new CommandFailedException(
+                        "Command '" + command.getName() + "' failed (exit " + exit + "):\n" + output, exit);
             }
             log.info("Ran command '{}' on {} (cmd={})", command.getName(), project.getName(), command.getCommand());
             return output;
@@ -257,15 +290,21 @@ public class ProcessSupervisor {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new RuntimeException(
                     "Command '" + command.getName() + "' failed for " + project.getName() + ": " + e.getMessage(), e);
+        } finally {
+            if (run != null) syncRuns.remove(command.getId(), run);
         }
     }
 
     /**
      * Run a long-running script command asynchronously: start it in the background as a managed
      * process, stream its output to the logs (keyed by command id), and return immediately. Unlike
-     * {@link #runCommand} there is no timeout — use this for builds that may take minutes.
+     * {@link #runCommand} there is no default timeout — use this for builds that may take minutes.
+     * An explicit {@code timeoutSeconds} on the command acts as a maximum run time, after which the
+     * process tree is killed; it can also be stopped at any time via {@link #stopCommand}.
+     * {@code onExit} (optional) receives how the script ended when it finishes; it is
+     * not called when the JVM is shutting down.
      */
-    public synchronized void runCommandAsync(Project project, ProjectCommand command) {
+    public synchronized void runCommandAsync(Project project, ProjectCommand command, Consumer<CommandExit> onExit) {
         if (command.getCommand() == null || command.getCommand().isBlank()) {
             throw new IllegalStateException("No command configured for: " + command.getName());
         }
@@ -279,17 +318,7 @@ public class ProcessSupervisor {
             throw new IllegalArgumentException("Root directory does not exist: " + project.getRootDirectory());
         }
 
-        ProcessBuilder pb = new ProcessBuilder(
-                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " +
-                "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                "& cmd.exe /c '" + escapeForPowerShell(command.getCommand()) + "'");
-        pb.directory(workDir);
-        pb.redirectErrorStream(true);
-        applyUtf8AndNoColorEnv(pb);
-        applyConfiguredJavaHome(pb);
-        applyConfiguredNodeHome(pb);
+        ProcessBuilder pb = commandProcessBuilder(command, workDir);
 
         Process p;
         try {
@@ -302,11 +331,140 @@ public class ProcessSupervisor {
                 command.getId() + "-" + LocalDate.now().format(DateTimeFormatter.ISO_DATE) + ".log");
         ManagedProcess mp = new ManagedProcess(command.getId(), p, new RingBuffer(ringCapacity), logFile);
         live.put(command.getId(), mp);
+
+        Integer timeout = command.getTimeoutSeconds();
+        ScheduledFuture<?> timeoutTask = null;
+        if (timeout != null && timeout > 0) {
+            timeoutTask = watchdog.schedule(() -> {
+                if (mp.isAlive()) {
+                    mp.markTimedOut();
+                    mp.note("[pm] timed out after " + timeout + "s — killing process tree");
+                    killTree(mp.getPid());
+                }
+            }, timeout, TimeUnit.SECONDS);
+        }
+        final ScheduledFuture<?> timeoutTaskRef = timeoutTask;
+
         // Evict from the live registry once the script finishes; the archived log file remains.
-        p.onExit().thenRun(() -> live.remove(command.getId(), mp));
+        p.onExit().thenRun(() -> {
+            if (timeoutTaskRef != null) timeoutTaskRef.cancel(false);
+            live.remove(command.getId(), mp);
+            if (onExit != null && !jvmShuttingDown) {
+                try {
+                    onExit.accept(new CommandExit(p.exitValue(), mp.isCancelRequested(), mp.isTimedOut()));
+                } catch (RuntimeException e) {
+                    log.warn("Exit callback for command '{}' failed: {}", command.getName(), e.toString());
+                }
+            }
+        });
 
         log.info("Started script command '{}' on {} (pid={}, cmd={})",
                 command.getName(), project.getName(), p.pid(), command.getCommand());
+    }
+
+    /**
+     * Stop a running command (script or synchronous) by killing its whole process tree.
+     * Not {@code synchronized} so it can never queue behind another long operation.
+     * Returns true when something was actually running and got stopped.
+     */
+    public boolean stopCommand(String commandId) {
+        boolean stopped = false;
+
+        ManagedProcess mp = live.get(commandId);
+        if (mp != null && mp.isAlive()) {
+            mp.markCancelRequested();
+            mp.note("[pm] stop requested — killing process tree (pid=" + mp.getPid() + ")");
+            killTree(mp.getPid());
+            try {
+                mp.getProcess().waitFor(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            stopped = true;
+        }
+
+        SyncRun run = syncRuns.get(commandId);
+        if (run != null && run.process.isAlive()) {
+            run.cancelled = true;
+            killTree(run.process.pid());
+            stopped = true;
+        }
+
+        if (stopped) log.info("Stopped command {}", commandId);
+        return stopped;
+    }
+
+    /** True while a command (script or synchronous) is still running. */
+    public boolean isCommandRunning(String commandId) {
+        return commandRunState(commandId).isPresent();
+    }
+
+    public Optional<CommandRunState> commandRunState(String commandId) {
+        ManagedProcess mp = live.get(commandId);
+        if (mp != null && mp.isAlive()) {
+            return Optional.of(new CommandRunState(mp.getStartedAt(), mp.getLastOutputAt()));
+        }
+        SyncRun run = syncRuns.get(commandId);
+        if (run != null && run.process.isAlive()) {
+            return Optional.of(new CommandRunState(run.startedAt, null));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Builds the PowerShell wrapper for a maintenance command. stdin is bound to NUL so a command
+     * that prompts for input (pause, y/n, login) sees EOF instead of waiting forever. This is not
+     * applied to launches: some dev servers (e.g. Vite) shut down when stdin closes.
+     */
+    private ProcessBuilder commandProcessBuilder(ProjectCommand command, File workDir) {
+        ProcessBuilder pb = new ProcessBuilder(
+                "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
+                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " +
+                "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
+                "& cmd.exe /c '" + escapeForPowerShell(command.getCommand()) + "'; exit $LASTEXITCODE");
+        pb.directory(workDir);
+        pb.redirectErrorStream(true);
+        pb.redirectInput(ProcessBuilder.Redirect.from(NULL_DEVICE));
+        applyUtf8AndNoColorEnv(pb);
+        applyConfiguredJavaHome(pb);
+        applyConfiguredNodeHome(pb);
+        return pb;
+    }
+
+    /**
+     * Kill a process and everything it spawned. Descendants are snapshotted twice (a dying build
+     * tool can spawn a last child), then the root is killed; {@code taskkill /T /F} is the fallback
+     * if the root survives.
+     */
+    static void killTree(long pid) {
+        Optional<ProcessHandle> root = ProcessHandle.of(pid);
+        if (root.isEmpty()) return;
+        ProcessHandle h = root.get();
+        for (int pass = 0; pass < 2; pass++) {
+            h.descendants().forEach(d -> {
+                log.debug("destroyForcibly descendant pid={}", d.pid());
+                d.destroyForcibly();
+            });
+        }
+        log.debug("destroyForcibly root pid={}", h.pid());
+        h.destroyForcibly();
+        try {
+            h.onExit().get(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            if (!h.isAlive()) return;
+            try {
+                Process tk = new ProcessBuilder("taskkill", "/PID", String.valueOf(pid), "/T", "/F")
+                        .redirectErrorStream(true)
+                        .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                        .start();
+                if (!tk.waitFor(5, TimeUnit.SECONDS)) tk.destroyForcibly();
+            } catch (IOException | InterruptedException ex) {
+                if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+                log.warn("taskkill fallback failed for pid={}: {}", pid, ex.getMessage());
+            }
+        }
     }
 
     /** Resolve current status without mutation. */

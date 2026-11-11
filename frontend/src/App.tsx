@@ -5,6 +5,7 @@ import { ProjectTable } from './components/ProjectTable'
 import { ProjectFormModal } from './components/ProjectFormModal'
 import { LogsDrawer, type LogSource } from './components/LogsDrawer'
 import { GitSyncModal } from './components/GitSyncModal'
+import { BuildHistoryModal } from './components/BuildHistoryModal'
 import { SettingsModal } from './components/SettingsModal'
 import { PushControlModal } from './components/PushControlModal'
 import { ShareControlModal } from './components/ShareControlModal'
@@ -45,6 +46,7 @@ export function App() {
   const [wifiShare, setWifiShare] = useState<LaunchDto | null>(null)
   const [shareLaunch, setShareLaunch] = useState<LaunchDto | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
+  const [buildHistory, setBuildHistory] = useState<{ projectId: string; launchId: string } | null>(null)
 
   const showError = (title: string, e: unknown) =>
     setDialog({ variant: 'error', title, message: extractError(e) })
@@ -149,8 +151,17 @@ export function App() {
       await refresh(); fetchGitStatus(p.id, true)
       setDialog({ variant: 'success', title: `${command.name} complete: ${p.name}`, message: `Command "${command.name}" finished.`, detail: output || '(no output)' })
     }
-    catch (e) { showError(`${command.name} failed: ${p.name}`, e) }
+    catch (e) {
+      // A run the user stopped themselves is not an error worth a dialog.
+      if (extractError(e).includes('was stopped for')) { await refresh() }
+      else showError(`${command.name} failed: ${p.name}`, e)
+    }
     finally { setBusyId(null) }
+  }
+  const handleStopCommand = async (projectId: string, command: ProjectCommandDto) => {
+    if (!confirm(`Stop "${command.name}"? Its process and all child processes will be killed.`)) return
+    try { await projectsApi.stopCommand(projectId, command.id); await refresh() }
+    catch (e) { showError(`Failed to stop: ${command.name}`, e) }
   }
   const handleDelete = async (p: ProjectDto) => {
     if (!confirm(`Delete "${p.name}"?`)) return
@@ -201,6 +212,18 @@ export function App() {
 
   useEffect(() => { localStorage.setItem(SIDEBAR_MODE_KEY, sidebarMode) }, [sidebarMode])
 
+  // Live copy of the project open in the pull dialog: the dialog's own snapshot never updates,
+  // but the refreshed list tells us which launches the pull just made stale.
+  const livePullProject = gitModal ? projects.find(p => p.id === gitModal.project.id) : undefined
+  const staleBuilds = (livePullProject?.launches ?? [])
+    .filter(l => l.build?.state === 'STALE')
+    .map(l => ({
+      launch: l,
+      commands: (livePullProject?.commands ?? []).filter(c => c.buildForLaunchId === l.id),
+    }))
+  const historyProject = buildHistory ? projects.find(p => p.id === buildHistory.projectId) : undefined
+  const historyLaunch = historyProject?.launches.find(l => l.id === buildHistory?.launchId)
+
   return (
     <div className="app">
       <Sidebar
@@ -240,7 +263,9 @@ export function App() {
               onStop={handleStop}
               onShowWifi={(l) => setWifiShare(l)}
               onShowShare={(l) => setShareLaunch(l)}
+              onShowBuilds={(p, l) => setBuildHistory({ projectId: p.id, launchId: l.id })}
               onRunCommand={handleRunCommand}
+              onStopCommand={(p, cmd) => handleStopCommand(p.id, cmd)}
               onOpenCommandLogs={(p, cmd) => setLogsFor({ source: { id: cmd.id, name: cmd.name, kind: 'command' }, projectName: p.name })}
               onEdit={handleEdit}
               onDelete={handleDelete}
@@ -263,7 +288,15 @@ export function App() {
         />
       )}
       {logsFor && (
-        <LogsDrawer source={logsFor.source} projectName={logsFor.projectName} onClose={() => setLogsFor(null)} />
+        <LogsDrawer
+          source={logsFor.source}
+          projectName={logsFor.projectName}
+          command={logsFor.source.kind === 'command'
+            ? projects.flatMap(p => p.commands ?? []).find(c => c.id === logsFor.source.id) ?? null
+            : null}
+          onStopCommand={(cmd) => handleStopCommand(cmd.projectId, cmd)}
+          onClose={() => setLogsFor(null)}
+        />
       )}
       {gitModal && (
         <GitSyncModal
@@ -272,6 +305,14 @@ export function App() {
           mode={gitModal.mode}
           onGoSync={() => setGitModal({ project: gitModal.project, mode: 'sync' })}
           onRefresh={() => fetchGitStatus(gitModal.project.id, true)}
+          onPulled={() => { refresh() }}
+          staleBuilds={staleBuilds}
+          buildsBusy={busyId === gitModal.project.id}
+          onRunBuild={(cmd) => {
+            const target = livePullProject ?? gitModal.project
+            setGitModal(null)
+            handleRunCommand(target, cmd)
+          }}
           onClose={(changed) => {
             const id = gitModal.project.id
             setGitModal(null)
@@ -309,6 +350,16 @@ export function App() {
           onCreate={(ttl) => handleShareCreate(shareLaunch, ttl)}
           onStop={() => handleShareStop(shareLaunch)}
           onClose={() => setShareLaunch(null)}
+        />
+      )}
+      {historyProject && historyLaunch && (
+        <BuildHistoryModal
+          project={historyProject}
+          launch={historyLaunch}
+          busy={busyId === historyProject.id}
+          onRunCommand={handleRunCommand}
+          onStopCommand={(p, cmd) => handleStopCommand(p.id, cmd)}
+          onClose={() => setBuildHistory(null)}
         />
       )}
       {dialog && (

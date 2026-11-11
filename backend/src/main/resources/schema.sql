@@ -18,6 +18,26 @@ CREATE TABLE IF NOT EXISTS project_commands (
 
 ALTER TABLE project_commands ADD COLUMN IF NOT EXISTS script BOOLEAN DEFAULT FALSE NOT NULL;
 
+-- Build tracking: which launch a command builds, and the history of those builds.
+ALTER TABLE project_commands ADD COLUMN IF NOT EXISTS build_for_launch_id VARCHAR(36);
+
+CREATE TABLE IF NOT EXISTS build_records (
+    id             VARCHAR(36)  NOT NULL,
+    project_id     VARCHAR(36)  NOT NULL,
+    launch_id      VARCHAR(36)  NOT NULL,
+    command_id     VARCHAR(36)  NOT NULL,
+    command_name   VARCHAR(200) NOT NULL,
+    commit_sha     VARCHAR(40),
+    commit_subject VARCHAR(500),
+    branch         VARCHAR(200),
+    status         VARCHAR(16)  NOT NULL,
+    exit_code      INT,
+    started_at     TIMESTAMP    NOT NULL,
+    finished_at    TIMESTAMP,
+    CONSTRAINT pk_build_records PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS idx_build_records_launch ON build_records (launch_id, started_at);
+
 -- Rung 1: named <alias>.localhost address per launch.
 ALTER TABLE launches ADD COLUMN IF NOT EXISTS alias VARCHAR(200);
 

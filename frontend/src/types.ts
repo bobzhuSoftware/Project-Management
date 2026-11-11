@@ -4,6 +4,33 @@ export type ProjectCategory = 'APPLICATION' | 'DATABASE' | 'SCRIPT' | 'OTHER'
 
 export type Reach = 'LOCAL' | 'WIFI' | 'INTERNET'
 
+export type BuildState = 'FRESH' | 'STALE' | 'NO_RECORD' | 'BUILDING'
+
+export type BuildStatus = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'INTERRUPTED' | 'CANCELLED' | 'TIMED_OUT'
+
+export interface BuildFreshnessDto {
+  state: BuildState
+  /** Only for STALE; -1 means the built commit is not an ancestor of HEAD. */
+  commitsBehind?: number | null
+  headSha?: string | null
+  builtSha?: string | null
+  builtSubject?: string | null
+  builtAt?: string | null
+  lastResult?: BuildStatus | null
+}
+
+export interface BuildRecordDto {
+  id: string
+  commandName: string
+  commitSha?: string | null
+  commitSubject?: string | null
+  branch?: string | null
+  status: BuildStatus
+  exitCode?: number | null
+  startedAt: string
+  finishedAt?: string | null
+}
+
 export interface LaunchDto {
   id: string
   projectId: string
@@ -23,6 +50,7 @@ export interface LaunchDto {
   pid?: number | null
   startedAt?: string | null
   detectedPorts?: number[] | null
+  build?: BuildFreshnessDto | null
 }
 
 export interface ProjectDto {
@@ -47,7 +75,13 @@ export interface ProjectCommandDto {
   requireStopped: boolean
   script: boolean
   timeoutSeconds?: number | null
+  buildForLaunchId?: string | null
   sortOrder: number
+  /** True while the command's process is alive (script or synchronous). */
+  running?: boolean
+  startedAt?: string | null
+  /** Last output of a running script; null/absent for synchronous commands. */
+  lastOutputAt?: string | null
 }
 
 export type GitFileChangeType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'RENAMED' | 'UNTRACKED' | 'CONFLICT'
@@ -127,4 +161,5 @@ export interface ProjectCommandFormValues {
   requireStopped: boolean
   script: boolean
   timeoutSeconds: string
+  buildForLaunchId: string
 }

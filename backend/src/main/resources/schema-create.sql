@@ -62,12 +62,31 @@ CREATE TABLE IF NOT EXISTS project_commands (
     command         VARCHAR(2000) NOT NULL,
     require_stopped BOOLEAN       NOT NULL DEFAULT FALSE,
     script          BOOLEAN       NOT NULL DEFAULT FALSE,
+    build_for_launch_id VARCHAR(36),
     timeout_seconds INT,
     sort_order      INT           NOT NULL DEFAULT 0,
     CONSTRAINT pk_project_commands PRIMARY KEY (id),
     CONSTRAINT fk_project_commands_project
         FOREIGN KEY (project_id) REFERENCES projects (id)
 );
+
+-- 打包记录表（仅记录关联了启动项的打包命令；不加外键，删除命令后历史仍保留）
+CREATE TABLE IF NOT EXISTS build_records (
+    id             VARCHAR(36)  NOT NULL,
+    project_id     VARCHAR(36)  NOT NULL,
+    launch_id      VARCHAR(36)  NOT NULL,
+    command_id     VARCHAR(36)  NOT NULL,
+    command_name   VARCHAR(200) NOT NULL,
+    commit_sha     VARCHAR(40),
+    commit_subject VARCHAR(500),
+    branch         VARCHAR(200),
+    status         VARCHAR(16)  NOT NULL,
+    exit_code      INT,
+    started_at     TIMESTAMP    NOT NULL,
+    finished_at    TIMESTAMP,
+    CONSTRAINT pk_build_records PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS idx_build_records_launch ON build_records (launch_id, started_at);
 
 -- 运行时状态表（记录已启动进程的 PID，project_id 列现存放 launch id）
 CREATE TABLE IF NOT EXISTS runtime_state (

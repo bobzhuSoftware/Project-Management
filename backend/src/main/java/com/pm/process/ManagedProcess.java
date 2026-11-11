@@ -41,13 +41,20 @@ public class ManagedProcess {
 
     private final List<SseEmitter> subscribers = new CopyOnWriteArrayList<>();
     private final Thread pumpThread;
+    private final Object fileLock = new Object();
+    private BufferedWriter fileWriter;
     private volatile boolean closed = false;
+    /** Last time the process produced a line of output (or its start time); lets the UI flag a stuck command. */
+    @Getter private volatile Instant lastOutputAt;
+    @Getter private volatile boolean cancelRequested = false;
+    @Getter private volatile boolean timedOut = false;
 
     public ManagedProcess(String projectId, Process process, RingBuffer logs, Path logFile) {
         this.projectId = projectId;
         this.process = process;
         this.pid = process.pid();
         this.startedAt = Instant.now();
+        this.lastOutputAt = this.startedAt;
         this.logs = logs;
         this.logFile = logFile;
 
@@ -77,23 +84,40 @@ public class ManagedProcess {
         return process.isAlive();
     }
 
+    public void markCancelRequested() {
+        cancelRequested = true;
+    }
+
+    public void markTimedOut() {
+        timedOut = true;
+    }
+
+    /** Appends a PM-generated line ("[pm] ...") to the live buffer, subscribers and the archived log file. */
+    public void note(String line) {
+        logs.add(line);
+        writeToFile(line);
+        broadcast(line);
+    }
+
     private void pumpStdout() {
         try (InputStream in = process.getInputStream();
-             BufferedWriter fileWriter = openLogFile()) {
+             BufferedWriter w = openLogFile()) {
+            synchronized (fileLock) { fileWriter = w; }
 
             ByteArrayOutputStream lineBuf = new ByteArrayOutputStream(512);
             int b;
             while (!closed && (b = in.read()) != -1) {
                 if (b == '\n') {
-                    emitLine(lineBuf, fileWriter);
+                    emitLine(lineBuf);
                 } else {
                     lineBuf.write(b);
                 }
             }
-            if (lineBuf.size() > 0) emitLine(lineBuf, fileWriter);
+            if (lineBuf.size() > 0) emitLine(lineBuf);
         } catch (IOException e) {
             log.warn("[{}] stdout pump error: {}", projectId, e.getMessage());
         } finally {
+            synchronized (fileLock) { fileWriter = null; }
             String exitLine = "[pm] process exited with code " + (process.isAlive() ? "?" : process.exitValue());
             logs.add(exitLine);
             broadcast(exitLine);
@@ -102,7 +126,7 @@ public class ManagedProcess {
         }
     }
 
-    private void emitLine(ByteArrayOutputStream lineBuf, BufferedWriter fileWriter) {
+    private void emitLine(ByteArrayOutputStream lineBuf) {
         byte[] bytes = lineBuf.toByteArray();
         lineBuf.reset();
         // Drop trailing CR (CRLF terminators).
@@ -111,8 +135,9 @@ public class ManagedProcess {
         }
         String line = decodeSmart(bytes);
         String clean = stripAnsi(line);
+        lastOutputAt = Instant.now();
         logs.add(clean);
-        writeToFile(fileWriter, clean);
+        writeToFile(clean);
         broadcast(clean);
     }
 
@@ -140,15 +165,17 @@ public class ManagedProcess {
                 StandardOpenOption.APPEND);
     }
 
-    private void writeToFile(BufferedWriter w, String line) {
-        if (w == null) return;
-        try {
-            w.write(DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
-            w.write(" ");
-            w.write(line);
-            w.newLine();
-            w.flush();
-        } catch (IOException ignored) {}
+    private void writeToFile(String line) {
+        synchronized (fileLock) {
+            if (fileWriter == null) return;
+            try {
+                fileWriter.write(DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
+                fileWriter.write(" ");
+                fileWriter.write(line);
+                fileWriter.newLine();
+                fileWriter.flush();
+            } catch (IOException ignored) {}
+        }
     }
 
     private void broadcast(String line) {

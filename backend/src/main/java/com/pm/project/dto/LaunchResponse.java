@@ -1,5 +1,6 @@
 package com.pm.project.dto;
 
+import com.pm.build.BuildFreshnessDto;
 import com.pm.process.ManagedProcess;
 import com.pm.process.RuntimeStateEntity;
 import com.pm.project.Launch;
@@ -36,6 +37,9 @@ public class LaunchResponse {
     public Long pid;
     public Instant startedAt;
     public List<Integer> detectedPorts;
+
+    // Build tracking: null unless a command is configured to build this launch.
+    public BuildFreshnessDto build;
 
     public static LaunchResponse from(Launch l,
                                       ProjectStatus status,

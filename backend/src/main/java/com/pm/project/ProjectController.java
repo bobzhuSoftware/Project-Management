@@ -54,6 +54,11 @@ public class ProjectController {
         return ResponseEntity.ok(service.runCommand(id, commandId));
     }
 
+    @PostMapping("/{id}/commands/{commandId}/stop")
+    public ResponseEntity<Boolean> stopCommand(@PathVariable String id, @PathVariable String commandId) {
+        return ResponseEntity.ok(service.stopCommand(id, commandId));
+    }
+
     @PutMapping("/{id}/push-enabled")
     public ProjectResponse setPushEnabled(@PathVariable String id, @RequestBody PushToggleRequest body) {
         return service.setPushEnabled(id, body.enabled);

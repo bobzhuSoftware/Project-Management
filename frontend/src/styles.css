@@ -188,6 +188,23 @@ td.actions button { margin-right: 6px; }
 .git-badge.warn { background: rgba(168, 85, 247, 0.18); color: #c084fc; }
 .git-badge.err { background: rgba(248, 113, 113, 0.18); color: var(--red); }
 .git-badge.none { background: rgba(148, 163, 184, 0.15); color: var(--gray); }
+.git-badge.build-stale { background: rgba(251, 146, 60, 0.2); color: #fb923c; }
+.git-badge.build-none { background: rgba(148, 163, 184, 0.15); color: var(--gray); }
+.git-badge.build-building { background: rgba(56, 189, 248, 0.18); color: var(--accent); }
+.git-badge.build-fresh { background: rgba(74, 222, 128, 0.18); color: var(--green); font-size: 10px; }
+.name-build { margin-top: 2px; }
+.name-build .git-badge, .launch-name-cell .git-badge { white-space: nowrap; }
+.build-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.build-history-table th { text-align: left; padding: 6px 8px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+.build-history-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.build-history-table tr.build-current td { background: rgba(74, 222, 128, 0.1); }
+.build-result.SUCCESS { color: var(--green); }
+.build-result.FAILED { color: var(--red); }
+.build-result.INTERRUPTED { color: var(--amber); }
+.build-result.CANCELLED { color: var(--amber); }
+.build-result.TIMED_OUT { color: var(--red); }
+.build-result.RUNNING { color: var(--accent); }
+.build-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .git-branch { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; padding: 2px 6px; border-radius: 6px; font-family: 'Consolas', monospace; font-size: 11px; background: rgba(148, 163, 184, 0.12); color: var(--muted); }
 .git-branch.other { background: rgba(56, 189, 248, 0.15); color: var(--accent); }
 .git-badge-btn { border: none; cursor: pointer; line-height: inherit; font-family: inherit; }
@@ -299,6 +316,11 @@ td.actions { width: 1%; white-space: nowrap; }
 .action-menu-cmd-row { display: flex; gap: 2px; align-items: stretch; }
 .action-menu-cmd-row .action-menu-cmd-run { flex: 1; }
 .action-menu-cmd-row .action-menu-cmd-logs { width: auto; flex: 0 0 auto; text-align: center; padding: 7px 8px; }
+.cmd-running-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: cmd-pulse 1.2s ease-in-out infinite; vertical-align: middle; }
+@keyframes cmd-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.action-menu-btn .cmd-running-dot { margin-left: 4px; }
+.drawer-status { padding: 6px 16px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.drawer-status.warn { color: var(--amber); }
 
 /* Drag-and-drop reorder */
 .drag-handle { cursor: grab; user-select: none; color: var(--muted); font-size: 16px; width: 24px; text-align: center; }

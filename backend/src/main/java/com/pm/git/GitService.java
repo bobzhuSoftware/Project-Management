@@ -8,9 +8,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.lib.BranchTrackingStatus;
+import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +29,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -60,6 +64,70 @@ public class GitService {
     private final Map<String, CachedStatus> cache = new ConcurrentHashMap<>();
 
     private record CachedStatus(GitStatusDto status, Instant cachedAt) {}
+
+    /** Commit distances never change for a fixed (project, base, head) triple, so they are cached forever. */
+    private static final int COMMIT_COUNT_CACHE_MAX = 500;
+    private final Map<String, Integer> commitCountCache = new ConcurrentHashMap<>();
+
+    /**
+     * Reads the current HEAD straight from the repository (no process spawn, no status cache).
+     * Returns empty for a non-git directory or a repository without commits.
+     */
+    public Optional<HeadInfo> readHead(Project p) {
+        File root = new File(p.getRootDirectory());
+        if (!root.isDirectory()) return Optional.empty();
+        try (Repository repo = new FileRepositoryBuilder().findGitDir(root).readEnvironment().build()) {
+            ObjectId head = repo.resolve(Constants.HEAD);
+            if (head == null) return Optional.empty();
+            try (RevWalk walk = new RevWalk(repo)) {
+                RevCommit commit = walk.parseCommit(head);
+                String full = repo.getFullBranch();
+                String branch = full != null && full.startsWith(Constants.R_HEADS) ? repo.getBranch() : null;
+                String subject = commit.getShortMessage();
+                if (subject.length() > COMMIT_MESSAGE_MAX) subject = subject.substring(0, COMMIT_MESSAGE_MAX);
+                return Optional.of(new HeadInfo(head.name(), subject, branch));
+            }
+        } catch (Exception e) {
+            log.debug("readHead failed for project {}: {}", p.getName(), e.toString());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Number of commits in {@code base..head}. Returns -1 when {@code base} is not an ancestor of
+     * {@code head} (different branch, rewritten history) or cannot be read.
+     */
+    public int countCommitsBetween(Project p, String baseSha, String headSha) {
+        if (baseSha == null || headSha == null) return -1;
+        if (baseSha.equals(headSha)) return 0;
+        String key = p.getId() + "|" + baseSha + "|" + headSha;
+        Integer cached = commitCountCache.get(key);
+        if (cached != null) return cached;
+
+        int result = -1;
+        File root = new File(p.getRootDirectory());
+        try (Repository repo = new FileRepositoryBuilder().findGitDir(root).readEnvironment().build()) {
+            try (RevWalk ancestry = new RevWalk(repo)) {
+                RevCommit base = ancestry.parseCommit(ObjectId.fromString(baseSha));
+                RevCommit head = ancestry.parseCommit(ObjectId.fromString(headSha));
+                if (ancestry.isMergedInto(base, head)) {
+                    try (RevWalk walk = new RevWalk(repo)) {
+                        walk.markStart(walk.parseCommit(head));
+                        walk.markUninteresting(walk.parseCommit(base));
+                        int count = 0;
+                        for (RevCommit ignored : walk) count++;
+                        result = count;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("countCommitsBetween failed for project {}: {}", p.getName(), e.toString());
+            return -1;
+        }
+        if (commitCountCache.size() >= COMMIT_COUNT_CACHE_MAX) commitCountCache.clear();
+        commitCountCache.put(key, result);
+        return result;
+    }
 
     public GitStatusDto status(String projectId) {
         return status(projectId, false, false);

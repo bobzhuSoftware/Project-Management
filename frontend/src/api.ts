@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings, GitDiffDto, GitFileChange, GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto, Reach } from './types'
+import type { AppSettings, BuildRecordDto, GitDiffDto, GitFileChange, GitStatusDto, GitSyncResultDto, ProjectCategory, ProjectDto, Reach } from './types'
 
 const api = axios.create({ baseURL: '/api', timeout: 30000 })
 
@@ -18,6 +18,7 @@ export interface ProjectCommandPayload {
   requireStopped?: boolean
   script?: boolean
   timeoutSeconds?: number | null
+  buildForLaunchId?: string | null
 }
 
 export interface ProjectPayload {
@@ -37,6 +38,8 @@ export const projectsApi = {
   remove: (id: string) => api.delete(`/projects/${id}`),
   runCommand: (id: string, commandId: string) =>
     api.post<string>(`/projects/${id}/commands/${commandId}/run`).then(r => r.data),
+  stopCommand: (id: string, commandId: string) =>
+    api.post<boolean>(`/projects/${id}/commands/${commandId}/stop`).then(r => r.data),
   reorder: (orderedIds: string[]) => api.put('/projects/reorder', orderedIds),
   openFolder: (id: string) => api.post(`/projects/${id}/open-folder`),
   setPushEnabled: (id: string, enabled: boolean) =>
@@ -48,6 +51,7 @@ export const launchesApi = {
   stop: (launchId: string) => api.post<ProjectDto>(`/launches/${launchId}/stop`).then(r => r.data),
   setReach: (launchId: string, reach: Reach, shareTtlMinutes?: number | null) =>
     api.put<ProjectDto>(`/launches/${launchId}/reach`, { reach, shareTtlMinutes }).then(r => r.data),
+  builds: (launchId: string) => api.get<BuildRecordDto[]>(`/launches/${launchId}/builds`).then(r => r.data),
 }
 
 export interface LogFileEntry {

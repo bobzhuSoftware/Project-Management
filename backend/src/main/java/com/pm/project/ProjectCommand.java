@@ -52,6 +52,13 @@ public class ProjectCommand {
     @Column(name = "timeout_seconds")
     private Integer timeoutSeconds;
 
+    /**
+     * When set, this command is the build step for that launch of the same project: each run is
+     * recorded (see {@code com.pm.build}) so PM can tell when the launch's build is out of date.
+     */
+    @Column(name = "build_for_launch_id", length = 36)
+    private String buildForLaunchId;
+
     @Column(name = "sort_order", nullable = false)
     @Builder.Default
     private int sortOrder = 0;
