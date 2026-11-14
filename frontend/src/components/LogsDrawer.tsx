@@ -103,6 +103,19 @@ export function LogsDrawer({ source, projectName, command, onStopCommand, onClos
     navigator.clipboard.writeText(text).catch(() => {})
   }
 
+  const downloadVisible = () => {
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+    const base = `${projectName}-${source.name}-${stamp}`.replace(/[\\/:*?"<>|\s]+/g, '_')
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${base}.log`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   const idleMs = running && command?.lastOutputAt ? now - new Date(command.lastOutputAt).getTime() : 0
   const maybeStuck = idleMs >= IDLE_WARN_MS
 
@@ -123,6 +136,10 @@ export function LogsDrawer({ source, projectName, command, onStopCommand, onClos
                   {paused ? 'Resume scroll' : 'Pause scroll'}
                 </button>
                 <button onClick={() => setLines([])}>Clear</button>
+                <button onClick={downloadVisible} disabled={lines.length === 0}
+                  title="Save the log lines currently shown (last 5000) as a .log file">Download visible</button>
+                <a className="btn-link" href={logSourceApi.downloadLatestUrl(source.kind, source.id)}
+                  title="Download the complete on-disk log file">Download full</a>
               </>
             )}
             {tab === 'history' && selectedFile && (

@@ -7,6 +7,8 @@ import com.pm.project.LaunchRepository;
 import com.pm.project.ProjectService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -111,6 +113,19 @@ public class LogsController {
         } catch (IOException e) {
             return null;
         }
+    }
+
+    /** Download the most recent on-disk log file for this launch (complete, not limited to the live buffer). */
+    @GetMapping("/download")
+    public ResponseEntity<Resource> downloadLatest(@PathVariable String launchId) {
+        launchRepo.findById(launchId)
+                .orElseThrow(() -> new ProjectService.NotFoundException("Launch not found: " + launchId));
+        Path latest = findLatestLogFile(launchId);
+        if (latest == null) return ResponseEntity.notFound().build();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+        headers.setContentDispositionFormData("attachment", latest.getFileName().toString());
+        return new ResponseEntity<>(new FileSystemResource(latest), headers, 200);
     }
 
     /** List archived log files for this launch, newest first. */
