@@ -41,6 +41,8 @@ export function LogsDrawer({ source, projectName, command, onStopCommand, onClos
   const [tab, setTab] = useState<Tab>('live')
   const [lines, setLines] = useState<string[]>([])
   const [paused, setPaused] = useState(false)
+  const [menu, setMenu] = useState<'copy' | 'download' | null>(null)
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const [history, setHistory] = useState<LogFileEntry[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [historyContent, setHistoryContent] = useState<string>('')
@@ -98,9 +100,25 @@ export function LogsDrawer({ source, projectName, command, onStopCommand, onClos
     }
   }, [lines, tab])
 
+  const flashCopyStatus = (msg: string) => {
+    setCopyStatus(msg)
+    setTimeout(() => setCopyStatus(null), 1500)
+  }
+
   const copyAll = () => {
     const text = tab === 'live' ? lines.join('\n') : historyContent
     navigator.clipboard.writeText(text).catch(() => {})
+  }
+
+  const copyFull = async () => {
+    setCopyStatus('Copying…')
+    try {
+      const text = await logSourceApi.latestContent(source.kind, source.id)
+      await navigator.clipboard.writeText(text)
+      flashCopyStatus('Copied')
+    } catch {
+      flashCopyStatus('Copy failed')
+    }
   }
 
   const downloadVisible = () => {
@@ -136,16 +154,46 @@ export function LogsDrawer({ source, projectName, command, onStopCommand, onClos
                   {paused ? 'Resume scroll' : 'Pause scroll'}
                 </button>
                 <button onClick={() => setLines([])}>Clear</button>
-                <button onClick={downloadVisible} disabled={lines.length === 0}
-                  title="Save the log lines currently shown (last 5000) as a .log file">Download visible</button>
-                <a className="btn-link" href={logSourceApi.downloadLatestUrl(source.kind, source.id)}
-                  title="Download the complete on-disk log file">Download full</a>
+                <div className="dl-menu">
+                  <button className={menu === 'download' ? 'open' : ''}
+                    onClick={() => setMenu(m => m === 'download' ? null : 'download')}>Download ▾</button>
+                  {menu === 'download' && (
+                    <>
+                      <div className="dl-menu-backdrop" onClick={() => setMenu(null)} />
+                      <div className="action-menu dl-menu-list">
+                        <button disabled={lines.length === 0}
+                          title="Save the log lines currently shown (last 5000)"
+                          onClick={() => { downloadVisible(); setMenu(null) }}>Visible lines</button>
+                        <a href={logSourceApi.downloadLatestUrl(source.kind, source.id)}
+                          title="Download the complete on-disk log file"
+                          onClick={() => setMenu(null)}>Full log file</a>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="dl-menu">
+                  <button className={menu === 'copy' ? 'open' : ''}
+                    onClick={() => setMenu(m => m === 'copy' ? null : 'copy')}>{copyStatus ?? 'Copy ▾'}</button>
+                  {menu === 'copy' && (
+                    <>
+                      <div className="dl-menu-backdrop" onClick={() => setMenu(null)} />
+                      <div className="action-menu dl-menu-list">
+                        <button disabled={lines.length === 0}
+                          title="Copy the log lines currently shown (last 5000)"
+                          onClick={() => { copyAll(); flashCopyStatus('Copied'); setMenu(null) }}>Visible lines</button>
+                        <button
+                          title="Copy the complete on-disk log file"
+                          onClick={() => { void copyFull(); setMenu(null) }}>Full log file</button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </>
             )}
             {tab === 'history' && selectedFile && (
               <a className="btn-link" href={logSourceApi.historyDownloadUrl(source.kind, source.id, selectedFile)}>Download</a>
             )}
-            <button onClick={copyAll}>Copy</button>
+            {tab === 'history' && <button onClick={copyAll}>Copy</button>}
             <button onClick={onClose}>Close</button>
           </div>
         </div>

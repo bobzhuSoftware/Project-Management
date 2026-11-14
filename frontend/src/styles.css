@@ -313,6 +313,15 @@ td.actions { width: 1%; white-space: nowrap; }
 }
 .action-menu button:hover:not(:disabled) { background: var(--border); }
 .action-menu button.danger-text { color: var(--red); }
+.dl-menu { position: relative; }
+.dl-menu > button.open { background: var(--border); }
+.dl-menu-backdrop { position: fixed; inset: 0; z-index: 50; }
+.dl-menu-list { position: absolute; top: calc(100% + 4px); right: 0; white-space: nowrap; }
+.action-menu a {
+  display: block; padding: 7px 10px; border-radius: 4px; color: var(--text);
+  text-decoration: none; font-size: 13px;
+}
+.action-menu a:hover { background: var(--border); }
 .action-menu-cmd-row { display: flex; gap: 2px; align-items: stretch; }
 .action-menu-cmd-row .action-menu-cmd-run { flex: 1; }
 .action-menu-cmd-row .action-menu-cmd-logs { width: auto; flex: 0 0 auto; text-align: center; padding: 7px 8px; }

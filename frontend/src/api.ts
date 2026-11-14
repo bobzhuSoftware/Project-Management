@@ -88,6 +88,9 @@ export const logsApi = {
     api.get<string>(`${logsBasePath(kind, id)}/history/${encodeURIComponent(filename)}`,
       { responseType: 'text', transformResponse: x => x }).then(r => r.data),
   downloadLatestUrl: (kind: LogKind, id: string) => `/api${logsBasePath(kind, id)}/download`,
+  latestContent: (kind: LogKind, id: string) =>
+    api.get<string>(`${logsBasePath(kind, id)}/download`,
+      { responseType: 'text', transformResponse: x => x }).then(r => r.data),
   historyDownloadUrl: (kind: LogKind, id: string, filename: string) =>
     `/api${logsBasePath(kind, id)}/history/${encodeURIComponent(filename)}?download=true`,
 }
